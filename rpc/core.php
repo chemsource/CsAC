@@ -513,7 +513,7 @@ function getOnlineStatus($last_active): string
     }
     $diff = time() - $value;
     if ($diff < 300) {
-        return '<span style="color:#67c23a;">● 在线</span>';
+        return '在线';
     }
     if ($diff < 3600) {
         return floor($diff / 60) . '分钟前在线';
