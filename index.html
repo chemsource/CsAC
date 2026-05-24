@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>CsAC 在线聊天</title>
+  <link rel="icon" href="icon/favicon.ico?v=20260511j" sizes="any">
+  <link rel="shortcut icon" href="icon/favicon.ico?v=20260511j">
+  <link rel="stylesheet" href="css/style.css?v=20260511j">
+  <link rel="stylesheet" href="css/mobile-telegram.css?v=20260511j">
+</head>
+<body>
+  <div id="app" class="app-loading">
+    <div class="loading-panel">
+      <div class="brand-mark"><img src="icon/favicon.ico?v=20260511j" alt=""></div>
+      <div>
+        <strong>CsAC</strong>
+        <span>连接 UniCsAC...</span>
+      </div>
+    </div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+  <script>
+    (function () {
+      var build = '20260511j';
+      window.CSAC_BUILD = build;
+
+      function clearBrowserCaches() {
+        try {
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (key) { caches.delete(key); });
+            });
+          }
+        } catch (error) {}
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+              registrations.forEach(function (registration) { registration.unregister(); });
+            });
+          }
+        } catch (error) {}
+      }
+
+      try {
+        if (localStorage.getItem('csac-web-build') !== build) {
+          localStorage.setItem('csac-web-build', build);
+          clearBrowserCaches();
+        }
+      } catch (error) {
+        clearBrowserCaches();
+      }
+
+      window.CSAC_BOOT_TIMER = window.setTimeout(function () {
+        var app = document.getElementById('app');
+        if (!app || !app.classList.contains('app-loading')) {
+          return;
+        }
+        clearBrowserCaches();
+        try {
+          var key = 'csac-boot-reload-' + build;
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            var url = new URL(window.location.href);
+            url.searchParams.set('_csac_refresh', build);
+            window.location.replace(url.toString());
+            return;
+          }
+        } catch (error) {}
+        app.innerHTML = '<div class="loading-panel"><div class="brand-mark"><img src="icon/favicon.ico?v=' + build + '" alt=""></div><div><strong>CsAC</strong><span>缓存更新失败，请重新刷新页面</span></div></div>';
+      }, 10000);
+    })();
+  </script>
+  <script src="js/api.js?v=20260511j"></script>
+  <script src="js/app.js?v=20260511j"></script>
+</body>
+</html>
