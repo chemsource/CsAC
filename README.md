@@ -1,151 +1,160 @@
-# CsAC ¡ª Chemsource AtsukaCIT Chatting Online
+# CsAC â€” Chemsource AtsukaCIT Chatting Online
 
-**CsAC** ÊÇÒ»¸ö¿ªÔ´µÄ Web ¼´Ê±Í¨Ñ¶ÏµÍ³£¬Ìá¹©ÈºÁÄ¡¢Ë½ÁÄ¡¢ºÃÓÑ¹ÜÀí¡¢¾«»ªÏûÏ¢¡¢¹ÜÀíÔ±·â½ûµÈÍêÕû¹¦ÄÜ¡£Ç°¶Ë²ÉÓÃÏìÓ¦Ê½Éè¼Æ£¬Í¬Ê±Ö§³Ö×ÀÃæ¶Ë¾­µä²¼¾ÖÓëÒÆ¶¯¶Ë Telegram ·ç¸ñ½çÃæ£¬ºó¶Ë»ùÓÚ PHP + MySQL ÊµÏÖ£¬ËùÓĞ API Í¨¹ıÍ³Ò»Èë¿Ú `/rpc/UniCsAC.php` µ÷ÓÃ¡£
+**CsAC** æ˜¯ä¸€ä¸ªå¼€æºçš„ Web å³æ—¶é€šè®¯ç³»ç»Ÿï¼Œæä¾›ç¾¤èŠã€ç§èŠã€å¥½å‹ç®¡ç†ã€ç²¾åæ¶ˆæ¯ã€ç®¡ç†å‘˜å°ç¦ç­‰å®Œæ•´åŠŸèƒ½ã€‚å‰ç«¯é‡‡ç”¨å“åº”å¼è®¾è®¡ï¼ŒåŒæ—¶æ”¯æŒæ¡Œé¢ç«¯ç»å…¸å¸ƒå±€ä¸ç§»åŠ¨ç«¯ Telegram é£æ ¼ç•Œé¢ï¼Œåç«¯åŸºäº PHP + MySQL å®ç°ï¼Œæ‰€æœ‰ API é€šè¿‡ç»Ÿä¸€å…¥å£ `/rpc/UniCsAC.php` è°ƒç”¨ã€‚
 
-## ? ÌØĞÔ
+## ? ç‰¹æ€§
 
-- ÓÃ»§×¢²á / µÇÂ¼ / ×ÊÁÏ¹ÜÀí
-- Èº×é¹¦ÄÜ£º´´½¨Èº×é¡¢ÑûÇëÂë/¿ÚÁî/ÉóºË¼ÓÈë¡¢³ÉÔ±¹ÜÀí¡¢½ûÑÔ¡¢Ìß³ö¡¢ÉèÖÃ¹ÜÀíÔ±
-- ºÃÓÑÏµÍ³£ºÌí¼ÓºÃÓÑ¡¢±¸×¢¡¢À­ºÚ¡¢É¾³ıÓë»Ö¸´
-- ¼´Ê±ÏûÏ¢£ºÎÄ×Ö¡¢Í¼Æ¬¡¢ÓïÒôÏûÏ¢£»Ö§³Ö»Ø¸´ºÍ @ Ìá¼°
-- ¾«»ªÏûÏ¢£ºÈºÖ÷/¹ÜÀíÔ±¿ÉÉèÖÃ/È¡Ïû¾«»ª£¬×Ô¶¯Í³¼ÆÅÅĞĞ
-- ÏµÍ³Í¨Öª£ººÃÓÑÇëÇó¡¢Èº×éÉêÇë¡¢¾Ù±¨·´À¡µÈ
-- ÉîÉ«/Ç³É«Ö÷Ìâ×ÔÊÊÓ¦£¬ÒÆ¶¯¶Ë¶ÀÁ¢ÑùÊ½
-- ¹ÜÀíÔ±ºóÌ¨£ºÓÃ»§/Èº×é·â½û¹ÜÀí£¨ÁÙÊ±ÁîÅÆ»úÖÆ£©
-- ÍêÕûµÄ RESTful API£¬±ãÓÚµÚÈı·½¿Í»§¶Ë½ÓÈë
+- ç”¨æˆ·æ³¨å†Œ / ç™»å½• / èµ„æ–™ç®¡ç†
+- ç¾¤ç»„åŠŸèƒ½ï¼šåˆ›å»ºç¾¤ç»„ã€é‚€è¯·ç /å£ä»¤/å®¡æ ¸åŠ å…¥ã€æˆå‘˜ç®¡ç†ã€ç¦è¨€ã€è¸¢å‡ºã€è®¾ç½®ç®¡ç†å‘˜
+- å¥½å‹ç³»ç»Ÿï¼šæ·»åŠ å¥½å‹ã€å¤‡æ³¨ã€æ‹‰é»‘ã€åˆ é™¤ä¸æ¢å¤
+- å³æ—¶æ¶ˆæ¯ï¼šæ–‡å­—ã€å›¾ç‰‡ã€è¯­éŸ³æ¶ˆæ¯ï¼›æ”¯æŒå›å¤å’Œ @ æåŠ
+- ç²¾åæ¶ˆæ¯ï¼šç¾¤ä¸»/ç®¡ç†å‘˜å¯è®¾ç½®/å–æ¶ˆç²¾åï¼Œè‡ªåŠ¨ç»Ÿè®¡æ’è¡Œ
+- ç³»ç»Ÿé€šçŸ¥ï¼šå¥½å‹è¯·æ±‚ã€ç¾¤ç»„ç”³è¯·ã€ä¸¾æŠ¥åé¦ˆç­‰
+- æ·±è‰²/æµ…è‰²ä¸»é¢˜è‡ªé€‚åº”ï¼Œç§»åŠ¨ç«¯ç‹¬ç«‹æ ·å¼
+- ç®¡ç†å‘˜åå°ï¼šç”¨æˆ·/ç¾¤ç»„å°ç¦ç®¡ç†ï¼ˆä¸´æ—¶ä»¤ç‰Œæœºåˆ¶ï¼‰
+- å®Œæ•´çš„ RESTful APIï¼Œä¾¿äºç¬¬ä¸‰æ–¹å®¢æˆ·ç«¯æ¥å…¥
 
-## ?? ¼¼ÊõÕ»
+## ?? æŠ€æœ¯æ ˆ
 
-| ²ã         | ¼¼Êõ                                 |
+| å±‚         | æŠ€æœ¯                                 |
 |-----------|--------------------------------------|
-| Ç°¶Ë       | HTML5, CSS3, Ô­Éú JavaScript (ES6)   |
-| ºó¶Ë       | PHP 7.2+ (Ô­Éú MySQLi)               |
-| Êı¾İ¿â     | MySQL / MariaDB                      |
-| »á»°¹ÜÀí   | PHP Session + Cookie                 |
-| ÎÄ¼ş´æ´¢   | ±¾µØÄ¿Â¼ (`upload/`, `uploads/chat`) |
+| å‰ç«¯       | HTML5, CSS3, åŸç”Ÿ JavaScript (ES6)   |
+| åç«¯       | PHP 7.2+ (åŸç”Ÿ MySQLi)               |
+| æ•°æ®åº“     | MySQL / MariaDB                      |
+| ä¼šè¯ç®¡ç†   | PHP Session + Cookie                 |
+| æ–‡ä»¶å­˜å‚¨   | æœ¬åœ°ç›®å½• (`upload/`, `uploads/chat`) |
 
-## ?? °²×°²¿Êğ
+## ?? å®‰è£…éƒ¨ç½²
 
-### »·¾³ÒªÇó
-- PHP 7.2 »ò¸ü¸ß°æ±¾£¨ĞèÆôÓÃ `mysqli`¡¢`session`¡¢`fileinfo`¡¢`json` À©Õ¹£©
-- MySQL 5.7 »ò MariaDB 10.2+
-- ·şÎñÆ÷ĞèÖ§³Ö `.htaccess` »ò¿ÉÅäÖÃ PATH_INFO£¨ÓÃÓÚÂ·ÓÉ£©
+### ç¯å¢ƒè¦æ±‚
+- PHP 7.2 æˆ–æ›´é«˜ç‰ˆæœ¬ï¼ˆéœ€å¯ç”¨ `mysqli`ã€`session`ã€`fileinfo`ã€`json` æ‰©å±•ï¼‰
+- MySQL 5.7 æˆ– MariaDB 10.2+
+- æœåŠ¡å™¨éœ€æ”¯æŒ `.htaccess` æˆ–å¯é…ç½® PATH_INFOï¼ˆç”¨äºè·¯ç”±ï¼‰
 
-### ¿ìËÙ°²×°
+### å¿«é€Ÿå®‰è£…
 
-1. ½«ÏîÄ¿ËùÓĞÎÄ¼şÉÏ´«ÖÁÍøÕ¾¸ùÄ¿Â¼£¨ÀıÈç `/csac/`£©¡£
-2. È·±£ÒÔÏÂÄ¿Â¼¿ÉĞ´£º
+1. å°†é¡¹ç›®æ‰€æœ‰æ–‡ä»¶ä¸Šä¼ è‡³ç½‘ç«™æ ¹ç›®å½•ï¼ˆä¾‹å¦‚ `/csac/`ï¼‰ã€‚
+2. ç¡®ä¿ä»¥ä¸‹ç›®å½•å¯å†™ï¼š
    - `/rpc/`
-   - `/upload/` ¼°Æä×ÓÄ¿Â¼
+   - `/upload/` åŠå…¶å­ç›®å½•
    - `/uploads/chat/`
-3. °´ÕÕÎÄµµÄ©Î²¸½Â¼ÖĞµÄÃüÁî´´½¨Êı¾İ¿â
-4. ĞŞ¸Äcore.phpÖĞµÄÊı¾İ¿âÅäÖÃÎª×Ô¼ºµÄÊı¾İ¿â£¬¿çÓòÇëÇóÎª×Ô¼ºµÄµØÖ·
-5. ×¢²á¹ÜÀíÔ±ÕËºÅ£¬È·±£¹ÜÀíÔ±ÕËºÅuidÎª1
+3. æŒ‰ç…§æ–‡æ¡£æœ«å°¾é™„å½•ä¸­çš„å‘½ä»¤åˆ›å»ºæ•°æ®åº“
+4. ä¿®æ”¹core.phpä¸­çš„æ•°æ®åº“é…ç½®ä¸ºè‡ªå·±çš„æ•°æ®åº“ï¼Œè·¨åŸŸè¯·æ±‚ä¸ºè‡ªå·±çš„åœ°å€
+5. æ³¨å†Œç®¡ç†å‘˜è´¦å·ï¼Œç¡®ä¿ç®¡ç†å‘˜è´¦å·uidä¸º1
 
-## ?? ÎÄµµ
+## ?? æ–‡æ¡£
 
-- **API ÎÄµµ£¨¿ª·¢Õß£©**  
-  - HTML ¸ñÊ½£º`/doc/UniCsAC_API.html`  
-  - Markdown ¸ñÊ½£º`/docs/UniCsAC_API.md`
-- **°²×°Ö¸ÄÏ**£º²Î¼û±¾ÎÄµµ¡°°²×°²¿Êğ¡±ÕÂ½Ú
-- **Ç°¶Ë´úÂëËµÃ÷**£º`/css/` ºÍ `/js/` ÄÚÒÑÌí¼Ó±ØÒª×¢ÊÍ
+- **API æ–‡æ¡£ï¼ˆå¼€å‘è€…ï¼‰**  
+  - HTML æ ¼å¼ï¼š`/doc/UniCsAC_API.html`  
+  - Markdown æ ¼å¼ï¼š`/docs/UniCsAC_API.md`
+- **å®‰è£…æŒ‡å—**ï¼šå‚è§æœ¬æ–‡æ¡£â€œå®‰è£…éƒ¨ç½²â€ç« èŠ‚
+- **å‰ç«¯ä»£ç è¯´æ˜**ï¼š`/css/` å’Œ `/js/` å†…å·²æ·»åŠ å¿…è¦æ³¨é‡Š
 
-## ?? Ê¹ÓÃĞí¿ÉÓëÖø×÷È¨
+## ?? ä½¿ç”¨è®¸å¯ä¸è‘—ä½œæƒ
 
-±¾³ÌĞòÊÇ **Chemsource AtsukaCIT Chatting Online (CsAC)** µÄ Web °æ±¾¡£
+æœ¬ç¨‹åºæ˜¯ **Chemsource AtsukaCIT Chatting Online (CsAC)** çš„ Web ç‰ˆæœ¬ã€‚
 
-- Äã¿ÉÒÔ×ÔÓÉÊ¹ÓÃ¡¢ĞŞ¸Ä¡¢¸´ÖÆ¡¢·Ö·¢±¾Èí¼ş¡£
-- ÔÊĞí½«±¾Èí¼şÓÃÓÚÉÌÒµÓÃÍ¾£¬Ò²ÔÊĞí½«Æä°üº¬ÔÚ±ÕÔ´µÄÉÌÒµ²úÆ·ÖĞ¡£
-- **Î¨Ò»ÏŞÖÆ**£ºÄã±ØĞëÔÚÈí¼şµÄÏÔÖøÎ»ÖÃ£¨Èç¹ØÓÚÒ³Ãæ¡¢ÎÄµµ»òÔ´´úÂë×¢ÊÍÖĞ£©±£ÁôÔ­Ê¼×÷ÕßĞÅÏ¢£¨ÀıÈç ¡°Powered by CsAC¡± »ò ¡°Original author: Chemsource AtsukaCIT¡±£©¡£
+- ä½ å¯ä»¥è‡ªç”±ä½¿ç”¨ã€ä¿®æ”¹ã€å¤åˆ¶ã€åˆ†å‘æœ¬è½¯ä»¶ã€‚
+- å…è®¸å°†æœ¬è½¯ä»¶ç”¨äºå•†ä¸šç”¨é€”ï¼Œä¹Ÿå…è®¸å°†å…¶åŒ…å«åœ¨é—­æºçš„å•†ä¸šäº§å“ä¸­ã€‚
+- **å”¯ä¸€é™åˆ¶**ï¼šä½ å¿…é¡»åœ¨è½¯ä»¶çš„æ˜¾è‘—ä½ç½®ï¼ˆå¦‚å…³äºé¡µé¢ã€æ–‡æ¡£æˆ–æºä»£ç æ³¨é‡Šä¸­ï¼‰ä¿ç•™åŸå§‹ä½œè€…ä¿¡æ¯ï¼ˆä¾‹å¦‚ â€œPowered by CsACâ€ æˆ– â€œOriginal author: Chemsource AtsukaCITâ€ï¼‰ã€‚
 
-½¨ÒéÔÚ´úÂë²Ö¿âÖĞ±£Áô `LICENSE` ÎÄ¼ş£¨Èç MIT + ÊğÃûÉùÃ÷£©£¬ÒÔÃ÷È··¨ÂÉÌõ¿î¡£
+å»ºè®®åœ¨ä»£ç ä»“åº“ä¸­ä¿ç•™ `LICENSE` æ–‡ä»¶ï¼ˆå¦‚ MIT + ç½²åå£°æ˜ï¼‰ï¼Œä»¥æ˜ç¡®æ³•å¾‹æ¡æ¬¾ã€‚
 
-## ?? ¹±Ï×
+## ?? è´¡çŒ®
 
-»¶Ó­Ìá½» Issue¡¢Pull Request »ò¹¦ÄÜ½¨Òé¡£ÇëÈ·±£´úÂë·ç¸ñÓëÏÖÓĞÏîÄ¿±£³ÖÒ»ÖÂ£¬²¢¸üĞÂÏà¹ØÎÄµµ¡£
+æ¬¢è¿æäº¤ Issueã€Pull Request æˆ–åŠŸèƒ½å»ºè®®ã€‚è¯·ç¡®ä¿ä»£ç é£æ ¼ä¸ç°æœ‰é¡¹ç›®ä¿æŒä¸€è‡´ï¼Œå¹¶æ›´æ–°ç›¸å…³æ–‡æ¡£ã€‚
 
-## ?? ÁªÏµ·½Ê½
+## ?? è”ç³»æ–¹å¼
 
-- ÏîÄ¿Ö÷Ò³£ºhttps://csac.ccccocccc.cc
-- ¹Ù·½°æ±¾£ºhttps://cschat.ccccocccc.cc
-- ×÷Õß / Î¬»¤Õß£ºChemsource Studio
-- ÎÊÌâ·´À¡£º
-    1. Í¨¹ı GitHub Issues 
-    2. ÍøÕ¾ÄÚµÄ¡°Bug·´À¡¡±¹¦ÄÜ
-    3. ÓÊÏä swcsstudio@126.com
-    4. BÕ¾@Chemsource»¯Ô´¹¤×÷ÊÒ
-    5. QQÈº£º1103519538
+- é¡¹ç›®ä¸»é¡µï¼šhttps://csac.ccccocccc.cc
+- å®˜æ–¹ç‰ˆæœ¬ï¼šhttps://cschat.ccccocccc.cc
+- ä½œè€… / ç»´æŠ¤è€…ï¼šChemsource Studio
+- é—®é¢˜åé¦ˆï¼š
+    1. é€šè¿‡ GitHub Issues 
+    2. ç½‘ç«™å†…çš„â€œBugåé¦ˆâ€åŠŸèƒ½
+    3. é‚®ç®± swcsstudio@126.com
+    4. Bç«™@ChemsourceåŒ–æºå·¥ä½œå®¤
+    5. QQç¾¤ï¼š1103519538
 
 ---
 
-## ¸½Â¼£ºSQL´´½¨ÃüÁî
+## é™„å½•ï¼šSQLåˆ›å»ºå‘½ä»¤
 ```
--- ¹ÜÀíÔ±ÁîÅÆ±í
-CREATE TABLE IF NOT EXISTS `admin_tokens` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è®¾ç½®å­—ç¬¦é›†å’Œæ—¶åŒº
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+-- åˆ›å»ºæ•°æ®åº“ï¼ˆå¦‚æœä¸å­˜åœ¨ï¼‰
+CREATE DATABASE IF NOT EXISTS `csac` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_uca1400_ai_ci;
+USE `csac`;
+
+-- è¡¨ç»“æ„ï¼šadmin_tokens
+CREATE TABLE `admin_tokens` (
+  `id` int(11) NOT NULL,
   `token` varchar(512) NOT NULL,
   `created_at` int(11) NOT NULL,
   `expires_at` int(11) NOT NULL,
   `used` tinyint(1) DEFAULT 0,
   `ip_address` varchar(45) DEFAULT NULL,
-  `user_agent` varchar(500) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `token` (`token`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+  `user_agent` varchar(500) DEFAULT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
--- ¾«»ªÏûÏ¢±í
-CREATE TABLE IF NOT EXISTS `chat_essence` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_essence
+CREATE TABLE `chat_essence` (
+  `id` int(11) NOT NULL,
   `msg_id` int(11) NOT NULL,
   `room_id` int(11) NOT NULL,
   `set_uid` int(11) NOT NULL,
   `set_nick` varchar(30) NOT NULL,
-  `set_time` datetime NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `msg_id` (`msg_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `set_time` datetime NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- Èº¹ÜÀíÔ±±í
-CREATE TABLE IF NOT EXISTS `chat_group_admin` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_group_admin
+CREATE TABLE `chat_group_admin` (
+  `id` int(11) NOT NULL,
   `room_id` int(11) NOT NULL,
   `uid` int(11) NOT NULL,
-  `add_time` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_room_admin` (`room_id`,`uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `add_time` int(11) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- Èº³ÉÔ±±í
-CREATE TABLE IF NOT EXISTS `chat_group_user` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_group_user
+CREATE TABLE `chat_group_user` (
+  `id` int(11) NOT NULL,
   `room_id` int(11) NOT NULL,
   `uid` int(11) NOT NULL,
   `join_time` datetime NOT NULL DEFAULT current_timestamp(),
   `mute_until` int(11) DEFAULT 0,
   `last_read_msg_id` int(11) DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_room_uid` (`room_id`,`uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `title` varchar(30) NOT NULL DEFAULT 'é’é“œ' COMMENT 'å¤´è¡”',
+  `level` int(11) NOT NULL DEFAULT 1 COMMENT 'ç­‰çº§',
+  `title_custom` tinyint(1) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ÈºÁÄÏûÏ¢±í
-CREATE TABLE IF NOT EXISTS `chat_msg` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_msg
+CREATE TABLE `chat_msg` (
+  `id` int(11) NOT NULL,
   `reply_to` int(11) DEFAULT NULL,
   `mention_uids` varchar(200) DEFAULT NULL,
   `room_id` int(11) NOT NULL,
   `uid` int(11) NOT NULL,
-  `nickname` varchar(30) NOT NULL,
+  `nickname` varchar(30) NOT NULL COMMENT 'å‘é€äººæ˜µç§°',
   `content` text NOT NULL,
   `add_time` datetime NOT NULL,
-  `msg_type` tinyint(1) DEFAULT 1 COMMENT '1ÎÄ×Ö 2Í¼Æ¬ 3ÓïÒô',
+  `msg_type` tinyint(1) DEFAULT 1 COMMENT '1=æ–‡å­—,2=å›¾ç‰‡,3=è¯­éŸ³ï¼Œ4=æ‹ä¸€æ‹',
   `is_essence` tinyint(1) NOT NULL DEFAULT 0,
-  `voice_duration` int(11) DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `voice_duration` int(11) DEFAULT 0 COMMENT 'è¯­éŸ³æ—¶é•¿(ç§’)',
+  `was_replied` int(11) NOT NULL DEFAULT 0 COMMENT '0-æœªæ’¤å›ï¼›1-è‡ªå·±æ’¤å›ï¼›2-è¢«ç®¡ç†å‘˜æ’¤å›ï¼›3-è¢«ç¾¤ä¸»æ’¤å›'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ¾Ù±¨±í
-CREATE TABLE IF NOT EXISTS `chat_report` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_report
+CREATE TABLE `chat_report` (
+  `id` int(11) NOT NULL,
   `reporter_uid` int(11) NOT NULL,
   `report_type` enum('user','group') NOT NULL,
   `target_id` int(11) NOT NULL,
@@ -155,127 +164,191 @@ CREATE TABLE IF NOT EXISTS `chat_report` (
   `status` enum('pending','processing','resolved') DEFAULT 'pending',
   `admin_reply` text DEFAULT NULL,
   `add_time` int(11) NOT NULL,
-  `process_time` int(11) DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+  `process_time` int(11) DEFAULT 0
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
--- Èº×é±í
-CREATE TABLE IF NOT EXISTS `chat_room` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_room
+CREATE TABLE `chat_room` (
+  `id` int(11) NOT NULL,
   `room_name` varchar(50) NOT NULL,
-  `owner_uid` int(11) NOT NULL,
-  `intro` text DEFAULT '',
+  `owner_uid` int(11) NOT NULL COMMENT 'ç¾¤ä¸»ID',
+  `intro` text DEFAULT '' COMMENT 'ç¾¤ç»„ç®€ä»‹',
   `notice` varchar(500) DEFAULT '',
-  `invite_code` varchar(32) NOT NULL,
-  `show_in_list` tinyint(1) NOT NULL DEFAULT 1,
-  `join_type` tinyint(1) DEFAULT 2 COMMENT '1Ö±½Ó 2ÑûÇëÂë 3¹Ì¶¨Âë 4ÉóºË',
-  `fixed_code` varchar(32) DEFAULT '',
-  `ask_question` varchar(100) DEFAULT '',
-  `ask_answer` varchar(100) DEFAULT '',
-  `owner_transfer_cd` int(11) DEFAULT 0,
-  `is_disband` tinyint(1) DEFAULT 0,
-  `disband_time` int(11) DEFAULT 0,
+  `invite_code` varchar(32) NOT NULL COMMENT 'å­—æ¯+æ•°å­—é‚€è¯·ç ',
+  `show_in_list` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'æ˜¯å¦åœ¨ç¾¤ç»„åˆ—è¡¨æ˜¾ç¤ºï¼ˆ1=æ˜¾ç¤ºï¼Œ0=éšè—ï¼‰',
+  `join_type` tinyint(1) DEFAULT 2 COMMENT '1ç›´æ¥åŠ å…¥ 2è‡ªåŠ¨æ¢ç  3å›ºå®šé‚€è¯·ç  4é—®ç­”å®¡æ ¸',
+  `fixed_code` varchar(32) DEFAULT '' COMMENT 'å›ºå®šé‚€è¯·ç ',
+  `ask_question` varchar(100) DEFAULT '' COMMENT 'å…¥ç¾¤é—®é¢˜',
+  `ask_answer` varchar(100) DEFAULT '' COMMENT 'å…¥ç¾¤ç­”æ¡ˆ',
+  `owner_transfer_cd` int(11) DEFAULT 0 COMMENT 'è½¬è®©å†·é™æœŸæˆªæ­¢æ—¶é—´æˆ³',
+  `is_disband` tinyint(1) DEFAULT 0 COMMENT '0æ­£å¸¸ 1å·²è§£æ•£',
+  `disband_time` int(11) DEFAULT 0 COMMENT 'è§£æ•£æ—¶é—´æˆ³',
   `allow_invite` tinyint(1) DEFAULT 1,
-  `ban_until` int(11) DEFAULT 0,
-  `ban_reason` varchar(500) DEFAULT '',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `ban_until` int(11) DEFAULT 0 COMMENT 'å°ç¦æˆªæ­¢æ—¶é—´æˆ³ï¼Œ0è¡¨ç¤ºæœªå°ç¦',
+  `ban_reason` varchar(500) DEFAULT '' COMMENT 'å°ç¦åŸå› ',
+  `avatar` varchar(255) DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ÈëÈºÉêÇë±í
-CREATE TABLE IF NOT EXISTS `chat_room_apply` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_room_apply
+CREATE TABLE `chat_room_apply` (
+  `id` int(11) NOT NULL,
   `room_id` int(11) NOT NULL,
   `uid` int(11) NOT NULL,
   `apply_type` tinyint(1) NOT NULL,
   `answer_content` varchar(200) DEFAULT '',
   `apply_time` datetime NOT NULL DEFAULT current_timestamp(),
-  `status` tinyint(1) DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_room_uid` (`room_id`,`uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `status` tinyint(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- Èº×ªÈÃ¼ÇÂ¼±í
-CREATE TABLE IF NOT EXISTS `chat_room_transfer` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_room_transfer
+CREATE TABLE `chat_room_transfer` (
+  `id` int(11) NOT NULL,
   `room_id` int(11) NOT NULL,
   `old_owner` int(11) NOT NULL,
   `new_owner` int(11) NOT NULL,
   `create_time` datetime NOT NULL DEFAULT current_timestamp(),
-  `status` tinyint(1) DEFAULT 0 COMMENT '0´ıÍ¬Òâ 1Í¬Òâ 2¾Ü¾ø 3¹ıÆÚ',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `status` tinyint(1) DEFAULT 0 COMMENT '0å¾…åŒæ„ 1åŒæ„ 2æ‹’ç» 3è¿‡æœŸ'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ÓÃ»§±í
-CREATE TABLE IF NOT EXISTS `chat_user` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_user
+CREATE TABLE `chat_user` (
+  `id` int(11) NOT NULL,
   `username` varchar(30) NOT NULL,
   `nickname` varchar(30) NOT NULL,
   `pwd` varchar(64) NOT NULL,
   `add_time` int(11) NOT NULL,
   `avatar` varchar(255) DEFAULT '',
-  `is_first_login` tinyint(1) DEFAULT 1,
-  `last_active` int(11) NOT NULL DEFAULT 0,
-  `ban_until` int(11) DEFAULT 0,
-  `ban_reason` varchar(500) DEFAULT '',
+  `is_first_login` tinyint(1) DEFAULT 1 COMMENT '1=é¦–æ¬¡ç™»å½•éœ€çœ‹æ•™ç¨‹ 0=å·²çœ‹è¿‡',
+  `last_active` int(11) NOT NULL DEFAULT 0 COMMENT 'æœ€åæ´»åŠ¨æ—¶é—´æˆ³',
+  `ban_until` int(11) DEFAULT 0 COMMENT 'å°ç¦æˆªæ­¢æ—¶é—´æˆ³ï¼Œ0è¡¨ç¤ºæœªå°ç¦',
+  `ban_reason` varchar(500) DEFAULT '' COMMENT 'å°ç¦åŸå› ',
   `theme_color` varchar(7) NOT NULL DEFAULT '#409eff',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `allow_auto_join` int(11) NOT NULL DEFAULT 0 COMMENT 'æ˜¯å¦å…è®¸é‚€è¯·åè‡ªåŠ¨å…¥ç¾¤',
+  `pat_action` varchar(32) NOT NULL DEFAULT 'æ‹äº†æ‹'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ÓÃ»§Í¨Öª±í
-CREATE TABLE IF NOT EXISTS `chat_user_notice` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šchat_user_notice
+CREATE TABLE `chat_user_notice` (
+  `id` int(11) NOT NULL,
   `uid` int(11) NOT NULL,
   `title` varchar(100) NOT NULL,
   `content` text DEFAULT NULL,
   `link` varchar(255) DEFAULT NULL,
   `is_read` tinyint(1) DEFAULT 0,
-  `add_time` datetime NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `add_time` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
 
--- ºÃÓÑ¹ØÏµ±í
-CREATE TABLE IF NOT EXISTS `friend_relation` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `uid1` int(11) NOT NULL,
-  `uid2` int(11) NOT NULL,
-  `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1ºÃÓÑ 2É¾³ıÖĞ 3ÒÑÉ¾ 4À­ºÚ',
-  `remark1` varchar(50) DEFAULT NULL,
-  `remark2` varchar(50) DEFAULT NULL,
+-- è¡¨ç»“æ„ï¼šcsac_channel
+CREATE TABLE `csac_channel` (
+  `id` int(11) NOT NULL,
+  `channel_name` varchar(50) NOT NULL,
+  `channel_desc` varchar(200) DEFAULT '',
+  `create_time` datetime DEFAULT current_timestamp()
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- è¡¨ç»“æ„ï¼šcsac_channel_msg
+CREATE TABLE `csac_channel_msg` (
+  `id` int(11) NOT NULL,
+  `channel_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `username` varchar(30) NOT NULL,
+  `msg` text NOT NULL,
+  `send_time` varchar(30) NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- è¡¨ç»“æ„ï¼šcsac_channel_user
+CREATE TABLE `csac_channel_user` (
+  `id` int(11) NOT NULL,
+  `channel_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- è¡¨ç»“æ„ï¼šfriend_relation
+CREATE TABLE `friend_relation` (
+  `id` int(11) NOT NULL,
+  `uid1` int(11) NOT NULL COMMENT 'ç”¨æˆ·1',
+  `uid2` int(11) NOT NULL COMMENT 'ç”¨æˆ·2',
+  `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1:æ­£å¸¸å¥½å‹ 2:åˆ é™¤ä¸­(3å¤©æ¢å¤æœŸ) 3:å·²åˆ é™¤ 4:æ‹‰é»‘',
+  `remark1` varchar(50) DEFAULT NULL COMMENT 'uid1å¯¹uid2çš„å¤‡æ³¨',
+  `remark2` varchar(50) DEFAULT NULL COMMENT 'uid2å¯¹uid1çš„å¤‡æ³¨',
   `create_time` datetime NOT NULL,
   `update_time` datetime NOT NULL,
-  `delete_time` datetime DEFAULT NULL,
-  `delete_by` int(11) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `unique_pair` (`uid1`,`uid2`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+  `delete_time` datetime DEFAULT NULL COMMENT 'åˆ é™¤æ—¶é—´',
+  `delete_by` int(11) DEFAULT NULL COMMENT 'æ“ä½œè€…UID',
+  `deleted_by` int(11) DEFAULT NULL,
+  `remark` varchar(50) DEFAULT ''
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- ºÃÓÑÇëÇó±í
-CREATE TABLE IF NOT EXISTS `friend_request` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `from_uid` int(11) NOT NULL,
-  `to_uid` int(11) NOT NULL,
-  `type` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1¼ÓºÃÓÑ 2»Ö¸´',
-  `status` tinyint(1) NOT NULL DEFAULT 0 COMMENT '0´ı´¦Àí 1Í¬Òâ 2¾Ü¾ø',
-  `content` varchar(255) DEFAULT NULL,
+-- è¡¨ç»“æ„ï¼šfriend_request
+CREATE TABLE `friend_request` (
+  `id` int(11) NOT NULL,
+  `from_uid` int(11) NOT NULL COMMENT 'ç”³è¯·äºº',
+  `to_uid` int(11) NOT NULL COMMENT 'æ¥æ”¶äºº',
+  `type` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1:åŠ å¥½å‹ 2:æ¢å¤å…³ç³»',
+  `status` tinyint(1) NOT NULL DEFAULT 0 COMMENT '0:å¾…å¤„ç† 1:å·²åŒæ„ 2:å·²æ‹’ç»',
+  `content` varchar(255) DEFAULT NULL COMMENT 'é™„åŠ æ¶ˆæ¯',
   `create_time` datetime NOT NULL,
-  `handle_time` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+  `handle_time` datetime DEFAULT NULL COMMENT 'å¤„ç†æ—¶é—´'
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Ë½ÁÄÏûÏ¢±í
-CREATE TABLE IF NOT EXISTS `private_msg` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+-- è¡¨ç»“æ„ï¼šprivate_msg
+CREATE TABLE `private_msg` (
+  `id` int(11) NOT NULL,
   `reply_to` int(11) DEFAULT NULL,
-  `from_uid` int(11) NOT NULL,
-  `to_uid` int(11) NOT NULL DEFAULT 0,
+  `from_uid` int(11) NOT NULL COMMENT 'å‘é€è€…UID',
+  `to_uid` int(11) NOT NULL DEFAULT 0 COMMENT 'æ¥æ”¶è€…UID',
   `content` text DEFAULT NULL,
-  `type` varchar(20) NOT NULL DEFAULT 'private',
-  `created_at` int(11) NOT NULL,
+  `type` varchar(20) NOT NULL DEFAULT 'private' COMMENT 'private=ç§èŠ, system=ç³»ç»Ÿæ¶ˆæ¯',
+  `room_id` int(11) NOT NULL DEFAULT 0,
+  `created_at` int(11) NOT NULL COMMENT 'Unixæ—¶é—´æˆ³',
   `is_read` tinyint(1) NOT NULL DEFAULT 0,
   `image_url` varchar(500) DEFAULT NULL,
   `voice_url` varchar(500) DEFAULT NULL,
   `duration` int(11) DEFAULT 0,
-  `is_recalled` tinyint(1) DEFAULT 0,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `is_recalled` tinyint(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- æ·»åŠ æ‰€æœ‰è¡¨çš„ç´¢å¼•å’Œä¸»é”®
+ALTER TABLE `admin_tokens` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `token` (`token`), ADD KEY `idx_token` (`token`), ADD KEY `idx_expires` (`expires_at`);
+ALTER TABLE `chat_essence` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `msg_id` (`msg_id`);
+ALTER TABLE `chat_group_admin` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `uk_room_admin` (`room_id`,`uid`), ADD UNIQUE KEY `idx_room_uid` (`room_id`,`uid`);
+ALTER TABLE `chat_group_user` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `uk_room_uid` (`room_id`,`uid`);
+ALTER TABLE `chat_msg` ADD PRIMARY KEY (`id`);
+ALTER TABLE `chat_report` ADD PRIMARY KEY (`id`);
+ALTER TABLE `chat_room` ADD PRIMARY KEY (`id`);
+ALTER TABLE `chat_room_apply` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `uk_room_uid` (`room_id`,`uid`);
+ALTER TABLE `chat_room_transfer` ADD PRIMARY KEY (`id`);
+ALTER TABLE `chat_user` ADD PRIMARY KEY (`id`);
+ALTER TABLE `chat_user_notice` ADD PRIMARY KEY (`id`);
+ALTER TABLE `csac_channel` ADD PRIMARY KEY (`id`);
+ALTER TABLE `csac_channel_msg` ADD PRIMARY KEY (`id`);
+ALTER TABLE `csac_channel_user` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `cid_uid` (`channel_id`,`user_id`);
+ALTER TABLE `friend_relation` ADD PRIMARY KEY (`id`), ADD UNIQUE KEY `unique_pair` (`uid1`,`uid2`), ADD UNIQUE KEY `unique_friend_pair` (`uid1`,`uid2`), ADD KEY `idx_uid1` (`uid1`), ADD KEY `idx_uid2` (`uid2`), ADD KEY `idx_status` (`status`), ADD KEY `idx_friend_relation_uid1_uid2` (`uid1`,`uid2`), ADD KEY `idx_friend_relation_status` (`status`), ADD KEY `idx_friend_relation_uid1` (`uid1`), ADD KEY `idx_friend_relation_uid2` (`uid2`);
+ALTER TABLE `friend_request` ADD PRIMARY KEY (`id`), ADD KEY `idx_to_uid` (`to_uid`,`status`), ADD KEY `idx_from_uid` (`from_uid`), ADD KEY `idx_status` (`status`);
+ALTER TABLE `private_msg` ADD PRIMARY KEY (`id`), ADD KEY `idx_from_to` (`from_uid`,`to_uid`), ADD KEY `idx_created` (`created_at`);
+
+-- è®¾ç½® AUTO_INCREMENTï¼ˆåˆå§‹ä¸ºå½“å‰æœ€å¤§å€¼ï¼Œè¿™é‡ŒæŒ‰åŸæ–‡ä»¶è®¾ä¸ºè‡ªåŠ¨é€’å¢ï¼Œæ— å…·ä½“èµ·å§‹å€¼åˆ™ä»1å¼€å§‹ï¼‰
+ALTER TABLE `admin_tokens` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_essence` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_group_admin` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_group_user` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_msg` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_report` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_room` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_room_apply` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_room_transfer` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_user` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `chat_user_notice` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `csac_channel` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `csac_channel_msg` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `csac_channel_user` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `friend_relation` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `friend_request` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+ALTER TABLE `private_msg` MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 ```
