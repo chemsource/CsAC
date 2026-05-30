@@ -1,10 +1,14 @@
+
 <?php
+ob_start();
 declare(strict_types=1);
 
-const CSAC_DB_HOST = 'localhost';
-const CSAC_DB_USER = 'admin';
-const CSAC_DB_PASS = '123456';
-const CSAC_DB_NAME = 'csac';
+//部署前请修改第81行处为自己的地址
+//部署前请修改下方的数据库配置
+const CSAC_DB_HOST = 'sql107.ccccocccc.cc';
+const CSAC_DB_USER = 'vh0_41030439';
+const CSAC_DB_PASS = 'xiaohua190625';
+const CSAC_DB_NAME = 'vh0_41030439_cschat';
 const CSAC_ADMIN_UID = 1;
 const CSAC_MAX_IMAGE_BYTES = 5242880;
 const CSAC_MAX_VOICE_BYTES = 10485760;
@@ -14,31 +18,16 @@ const CSAC_VOICE_MIMES = [
     'video/webm',
     'audio/ogg',
     'application/ogg',
-    'audio/opus',
     'audio/mpeg',
     'audio/mp3',
     'audio/wav',
     'audio/x-wav',
     'audio/wave',
-    'audio/vnd.wave',
     'audio/mp4',
-    'audio/m4a',
-    'audio/x-m4a',
     'video/mp4',
     'audio/aac',
-    'audio/aacp',
     'audio/3gpp',
-    'audio/3gpp2',
     'video/3gpp',
-    'video/3gpp2',
-    'audio/amr',
-    'audio/x-amr',
-    'audio/flac',
-    'audio/x-flac',
-    'audio/x-caf',
-    'audio/caf',
-    'audio/aiff',
-    'audio/x-aiff',
 ];
 
 if (!defined('UPLOAD_DIR')) {
@@ -89,6 +78,7 @@ function csac_send_cors_headers(): void
 {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
     $allowed = [
+        //在此处添加自己的网站
         'https://cschat.ccccocccc.cc',
         'https://csac.ccccocccc.cc',
         'http://localhost:1420',
@@ -119,48 +109,7 @@ function csac_db(): mysqli
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
     $conn = new mysqli(CSAC_DB_HOST, CSAC_DB_USER, CSAC_DB_PASS, CSAC_DB_NAME);
     $conn->set_charset('utf8mb4');
-    csac_ensure_schema();
     return $conn;
-}
-
-function csac_ensure_schema(): void
-{
-    static $ensured = false;
-    if ($ensured) {
-        return;
-    }
-    $ensured = true;
-
-    csac_ensure_column('chat_user', 'allow_auto_join', 'TINYINT(1) NOT NULL DEFAULT 1');
-    csac_ensure_column('chat_user', 'pat_action', "VARCHAR(32) NOT NULL DEFAULT '拍了拍'");
-    csac_ensure_column('chat_room', 'avatar', "VARCHAR(255) NOT NULL DEFAULT ''");
-    csac_ensure_column('chat_room', 'is_disband', 'TINYINT(1) NOT NULL DEFAULT 0');
-    csac_ensure_column('chat_room', 'disband_time', 'INT NOT NULL DEFAULT 0');
-    csac_ensure_column('chat_msg', 'msg_type', 'TINYINT NOT NULL DEFAULT 1');
-    csac_ensure_column('chat_msg', 'voice_duration', 'INT NOT NULL DEFAULT 0');
-    csac_ensure_column('chat_msg', 'reply_to', 'INT NULL DEFAULT NULL');
-    csac_ensure_column('chat_msg', 'mention_uids', "VARCHAR(255) NOT NULL DEFAULT ''");
-    csac_ensure_column('chat_msg', 'was_replied', 'TINYINT NOT NULL DEFAULT 0');
-    csac_ensure_column('chat_group_user', 'title', "VARCHAR(32) NOT NULL DEFAULT '青铜'");
-    csac_ensure_column('chat_group_user', 'level', 'TINYINT NOT NULL DEFAULT 1');
-    csac_ensure_column('chat_group_user', 'title_custom', 'TINYINT(1) NOT NULL DEFAULT 0');
-}
-
-function csac_ensure_column(string $table, string $column, string $definition): void
-{
-    global $CSAC_TABLE_COLUMNS;
-    if (csac_has_column($table, $column)) {
-        return;
-    }
-    $safeTable = str_replace('`', '', $table);
-    $safeColumn = str_replace('`', '', $column);
-    try {
-        csac_db()->query("ALTER TABLE `{$safeTable}` ADD COLUMN `{$safeColumn}` {$definition}");
-        unset($CSAC_TABLE_COLUMNS[$table]);
-    } catch (Throwable $e) {
-        unset($CSAC_TABLE_COLUMNS[$table]);
-        csac_log_error($e);
-    }
 }
 
 function csac_log_error(Throwable $e): void
@@ -250,8 +199,6 @@ function csac_routes(): array
         'message/send_group_msg' => 'csac_api_message_send_group_msg',
         'message/send_private_msg' => 'csac_api_message_send_private_msg',
         'message/send_voice_msg' => 'csac_api_message_send_voice_msg',
-        'message/send_pat_msg' => 'csac_api_message_send_pat_msg',
-        'message/pat' => 'csac_api_message_send_pat_msg',
         'message/get_group_msg' => 'csac_api_message_get_group_msg',
         'message/get_private_msg' => 'csac_api_message_get_private_msg',
         'message/recall_msg' => 'csac_api_message_recall_msg',
@@ -262,11 +209,9 @@ function csac_routes(): array
         'group/get_applications' => 'csac_api_group_get_applications',
         'group/apply_join' => 'csac_api_group_apply_join',
         'group/handle_apply' => 'csac_api_group_handle_apply',
-        'group/invite_member' => 'csac_api_group_invite_member',
         'group/kick_member' => 'csac_api_group_kick_member',
         'group/mute_member' => 'csac_api_group_mute_member',
         'group/set_admin' => 'csac_api_group_set_admin',
-        'group/set_member_title' => 'csac_api_group_set_member_title',
         'group/edit_info' => 'csac_api_group_edit_info',
         'group/update_settings' => 'csac_api_group_update_settings',
         'group/leave' => 'csac_api_group_leave',
@@ -569,7 +514,7 @@ function getOnlineStatus($last_active): string
     }
     $diff = time() - $value;
     if ($diff < 300) {
-        return '在线';
+        return '<span style="color:#67c23a;">● 在线</span>';
     }
     if ($diff < 3600) {
         return floor($diff / 60) . '分钟前在线';
@@ -621,32 +566,12 @@ function csac_touch_user(int $uid): void
 
 function csac_user(int $uid, string $columns = '*'): ?array
 {
-    return csac_fetch_one('SELECT ' . csac_select_columns('chat_user', $columns) . ' FROM chat_user WHERE id = ?', 'i', $uid);
+    return csac_fetch_one("SELECT {$columns} FROM chat_user WHERE id = ?", 'i', $uid);
 }
 
 function csac_room(int $roomId, string $columns = '*'): ?array
 {
-    return csac_fetch_one('SELECT ' . csac_select_columns('chat_room', $columns) . ' FROM chat_room WHERE id = ?', 'i', $roomId);
-}
-
-function csac_select_columns(string $table, string $columns): string
-{
-    $columns = trim($columns);
-    if ($columns === '*' || $columns === '') {
-        return '*';
-    }
-    $available = csac_table_columns($table);
-    $selected = [];
-    foreach (explode(',', $columns) as $column) {
-        $name = trim($column);
-        if ($name === '') {
-            continue;
-        }
-        if (preg_match('/^[A-Za-z0-9_]+$/', $name) && isset($available[$name])) {
-            $selected[] = '`' . $name . '`';
-        }
-    }
-    return $selected ? implode(', ', $selected) : '*';
+    return csac_fetch_one("SELECT {$columns} FROM chat_room WHERE id = ?", 'i', $roomId);
 }
 
 function csac_room_ban_info(array $room): ?array
@@ -710,9 +635,6 @@ function requireGroupMember(int $roomId, int $uid, bool $allowBanned = false): a
     if (!$room) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
     }
-    if ((int)($room['is_disband'] ?? 0) !== 0) {
-        response_json(['success' => false, 'message' => '群组不存在'], 404);
-    }
     if (!csac_is_group_member($roomId, $uid)) {
         response_json(['success' => false, 'message' => '你不是该群成员'], 403);
     }
@@ -726,9 +648,6 @@ function requireGroupOwner($room_id, $uid, bool $allowBanned = false): array
 {
     $room = csac_room((int)$room_id);
     if (!$room) {
-        response_json(['success' => false, 'message' => '群组不存在'], 404);
-    }
-    if ((int)($room['is_disband'] ?? 0) !== 0) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
     }
     if ((int)$room['owner_uid'] !== (int)$uid) {
@@ -746,9 +665,6 @@ function requireGroupOwnerOrAdmin($room_id, $uid, bool $allowBanned = false): ar
     if (!$room) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
     }
-    if ((int)($room['is_disband'] ?? 0) !== 0) {
-        response_json(['success' => false, 'message' => '群组不存在'], 404);
-    }
     if ((int)$room['owner_uid'] !== (int)$uid && !csac_is_group_admin((int)$room_id, (int)$uid)) {
         response_json(['success' => false, 'message' => '无权限'], 403);
     }
@@ -756,67 +672,6 @@ function requireGroupOwnerOrAdmin($room_id, $uid, bool $allowBanned = false): ar
         requireRoomNotBanned((int)$room_id, $room);
     }
     return $room;
-}
-
-function csac_group_default_title(int $level): string
-{
-    $level = max(1, min(100, $level));
-    if ($level <= 10) {
-        return '青铜';
-    }
-    if ($level <= 20) {
-        return '白银';
-    }
-    if ($level <= 40) {
-        return '黄金';
-    }
-    if ($level <= 80) {
-        return '铂金';
-    }
-    return '王者';
-}
-
-function csac_group_title_is_default(string $title): bool
-{
-    return $title === '' || in_array($title, ['青铜', '白银', '黄金', '铂金', '王者'], true);
-}
-
-function csac_group_level_from_activity(int $memberMessages, int $totalMessages): int
-{
-    if ($memberMessages <= 0 || $totalMessages <= 0) {
-        return 1;
-    }
-    $ratioLevel = (int)floor(($memberMessages / max(1, $totalMessages)) * 100);
-    return max(1, min(100, $ratioLevel));
-}
-
-function csac_refresh_group_member_level(int $roomId, int $uid): array
-{
-    if (!csac_has_column('chat_group_user', 'level')) {
-        return ['level' => 1, 'title' => csac_group_default_title(1)];
-    }
-    $counts = csac_fetch_one(
-        'SELECT COUNT(*) AS total_count, SUM(CASE WHEN uid = ? THEN 1 ELSE 0 END) AS member_count FROM chat_msg WHERE room_id = ?',
-        'ii',
-        $uid,
-        $roomId
-    );
-    $totalMessages = (int)($counts['total_count'] ?? 0);
-    $memberMessages = (int)($counts['member_count'] ?? 0);
-    $level = csac_group_level_from_activity($memberMessages, $totalMessages);
-    $defaultTitle = csac_group_default_title($level);
-    $hasTitle = csac_has_column('chat_group_user', 'title');
-    $member = $hasTitle
-        ? csac_fetch_one('SELECT title FROM chat_group_user WHERE room_id = ? AND uid = ? LIMIT 1', 'ii', $roomId, $uid)
-        : null;
-    $currentTitle = $hasTitle ? (string)($member['title'] ?? '') : $defaultTitle;
-    $updates = ['level' => $level];
-    if ($hasTitle && csac_group_title_is_default($currentTitle)) {
-        $updates['title'] = $defaultTitle;
-        $currentTitle = $defaultTitle;
-    }
-    csac_update_row('chat_group_user', $updates, 'room_id = ? AND uid = ?', [$roomId, $uid]);
-    return ['level' => $level, 'title' => $currentTitle];
 }
 
 function csac_friend_pair(int $a, int $b): array
@@ -902,31 +757,16 @@ function csac_upload_file(array $file, array $allowedMimes, int $maxBytes, strin
         'video/webm' => 'webm',
         'audio/ogg' => 'ogg',
         'application/ogg' => 'ogg',
-        'audio/opus' => 'opus',
         'audio/mpeg' => 'mp3',
         'audio/mp3' => 'mp3',
         'audio/wav' => 'wav',
         'audio/x-wav' => 'wav',
         'audio/wave' => 'wav',
-        'audio/vnd.wave' => 'wav',
         'audio/mp4' => 'm4a',
-        'audio/m4a' => 'm4a',
-        'audio/x-m4a' => 'm4a',
         'video/mp4' => 'm4a',
         'audio/aac' => 'aac',
-        'audio/aacp' => 'aac',
         'audio/3gpp' => '3gp',
-        'audio/3gpp2' => '3g2',
         'video/3gpp' => '3gp',
-        'video/3gpp2' => '3g2',
-        'audio/amr' => 'amr',
-        'audio/x-amr' => 'amr',
-        'audio/flac' => 'flac',
-        'audio/x-flac' => 'flac',
-        'audio/x-caf' => 'caf',
-        'audio/caf' => 'caf',
-        'audio/aiff' => 'aiff',
-        'audio/x-aiff' => 'aiff',
     ];
     $ext = $mimeToExt[$mime] ?? strtolower(pathinfo((string)($file['name'] ?? ''), PATHINFO_EXTENSION));
     if (!preg_match('/^[a-z0-9]{1,8}$/', $ext)) {
@@ -947,7 +787,6 @@ function csac_normalize_message_row(array $row, int $myUid = 0, array $extra = [
     $imageUrl = (string)($row['image_url'] ?? '');
     $voiceUrl = (string)($row['voice_url'] ?? '');
     $msgType = isset($row['msg_type']) ? (int)$row['msg_type'] : null;
-    $recallStatus = isset($row['was_replied']) ? (int)$row['was_replied'] : (isset($row['is_recalled']) ? (int)$row['is_recalled'] : 0);
     if ($msgType === null) {
         if ($imageUrl !== '') {
             $msgType = 2;
@@ -957,13 +796,6 @@ function csac_normalize_message_row(array $row, int $myUid = 0, array $extra = [
             $msgType = 1;
         }
     }
-
-    $createdAt = isset($row['created_at']) ? (int)$row['created_at'] : 0;
-    $addTime = (string)($row['add_time'] ?? '');
-    if ($createdAt <= 0 && $addTime !== '') {
-        $createdAt = csac_parse_utc_datetime($addTime);
-    }
-    $isoTime = $createdAt > 0 ? gmdate('c', $createdAt) : $addTime;
 
     $normalized = [
         'id' => (int)$row['id'],
@@ -978,16 +810,10 @@ function csac_normalize_message_row(array $row, int $myUid = 0, array $extra = [
         'voice_url' => $voiceUrl,
         'duration' => isset($row['duration']) ? (int)$row['duration'] : 0,
         'voice_duration' => isset($row['voice_duration']) ? (int)$row['voice_duration'] : 0,
-        'add_time' => $isoTime,
-        'created_at' => $createdAt,
+        'add_time' => $row['add_time'] ?? '',
+        'created_at' => isset($row['created_at']) ? (int)$row['created_at'] : 0,
         'avatar' => ($row['avatar'] ?? '') !== '' ? $row['avatar'] : CSAC_DEFAULT_AVATAR,
-        'member_title' => (string)($row['member_title'] ?? $row['title'] ?? '') !== ''
-            ? (string)($row['member_title'] ?? $row['title'])
-            : csac_group_default_title((int)($row['member_level'] ?? $row['level'] ?? 1)),
-        'member_level' => max(1, min(100, (int)($row['member_level'] ?? $row['level'] ?? 1))),
         'is_recalled' => isset($row['is_recalled']) ? (int)$row['is_recalled'] : 0,
-        'was_replied' => $recallStatus,
-        'recall_status' => $recallStatus,
         'is_read' => isset($row['is_read']) ? (int)$row['is_read'] : 0,
         'reply_to' => isset($row['reply_to']) ? (int)$row['reply_to'] : 0,
         'reply_content' => $row['reply_content'] ?? '',
@@ -1002,40 +828,11 @@ function csac_normalize_message_row(array $row, int $myUid = 0, array $extra = [
     if ($msgType === 3 && $normalized['voice_url'] === '' && $content !== '') {
         $normalized['voice_url'] = $content;
     }
-    if ($recallStatus > 0) {
-        $normalized['is_recalled'] = 1;
-        $normalized['content'] = match ($recallStatus) {
-            1 => '消息已被发送者撤回',
-            2 => '消息已被管理员撤回',
-            3 => '消息已被群主撤回',
-            default => '消息已撤回',
-        };
-        $normalized['image_url'] = '';
-        $normalized['voice_url'] = '';
-    }
 
     foreach ($extra as $key => $value) {
         $normalized[$key] = $value;
     }
     return $normalized;
-}
-
-function csac_parse_utc_datetime(string $value): int
-{
-    $text = trim($value);
-    if ($text === '') {
-        return 0;
-    }
-    if (is_numeric($text)) {
-        return max(0, (int)$text);
-    }
-    $utc = new DateTimeZone('UTC');
-    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $text, $utc);
-    if ($parsed instanceof DateTimeImmutable) {
-        return $parsed->getTimestamp();
-    }
-    $timestamp = strtotime($text);
-    return $timestamp === false ? 0 : $timestamp;
 }
 
 function csac_api_auth_login(): void
@@ -1176,7 +973,7 @@ function csac_api_user_get_info(): void
     if ($viewUid <= 0) {
         response_json(['success' => false, 'message' => '无效的用户ID']);
     }
-    $user = csac_user($viewUid, 'id, avatar, nickname, username, last_active, allow_auto_join, pat_action');
+    $user = csac_user($viewUid, 'id, avatar, nickname, username, last_active');
     if (!$user) {
         response_json(['success' => false, 'message' => '用户不存在'], 404);
     }
@@ -1203,7 +1000,7 @@ function csac_api_user_get_info(): void
                 $friendRequestReceived = !$friendRequestSent;
                 $canAddFriend = false;
             } elseif ($status === 4) {
-                $isBlocked = (int)($rel['delete_by'] ?? 0) === $myUid;
+                $isBlocked = (int)($rel['delete_by'] ?? 0) === $viewUid;
                 $canAddFriend = false;
             }
         }
@@ -1228,8 +1025,6 @@ function csac_api_user_get_info(): void
             'avatar' => ($user['avatar'] ?? '') !== '' ? $user['avatar'] : CSAC_DEFAULT_AVATAR,
             'last_active' => $user['last_active'],
             'online_status' => getOnlineStatus($user['last_active']),
-            'allow_auto_join' => (int)($user['allow_auto_join'] ?? 1),
-            'pat_action' => (string)($user['pat_action'] ?? '拍了拍'),
             'is_self' => $isSelf,
             'remark' => $remark,
             'is_friend' => $isFriend,
@@ -1245,7 +1040,7 @@ function csac_api_user_update_profile(): void
 {
     csac_require_method('POST');
     $uid = requireLogin();
-    $user = csac_user($uid, 'id, username, nickname, pwd, avatar, allow_auto_join, pat_action');
+    $user = csac_user($uid, 'id, username, nickname, pwd, avatar');
     if (!$user) {
         response_json(['success' => false, 'message' => '用户不存在'], 404);
     }
@@ -1282,30 +1077,6 @@ function csac_api_user_update_profile(): void
         );
         csac_update_row('chat_user', ['avatar' => $avatar], 'id = ?', [$uid]);
         response_json(['success' => true, 'message' => '头像更换成功', 'avatar' => $avatar]);
-    }
-
-    if ($action === 'privacy') {
-        $updates = [];
-        if (array_key_exists('allow_auto_join', csac_input())) {
-            $updates['allow_auto_join'] = csac_input_bool('allow_auto_join') ? 1 : 0;
-        }
-        if (!$updates) {
-            response_json(['success' => false, 'message' => '没有可更新内容']);
-        }
-        csac_update_row('chat_user', $updates, 'id = ?', [$uid]);
-        response_json(['success' => true, 'message' => '设置已更新'] + $updates);
-    }
-
-    if ($action === 'pat_action') {
-        $patAction = csac_input_string('pat_action', csac_input_string('value', '拍了拍'));
-        if ($patAction === '') {
-            $patAction = '拍了拍';
-        }
-        if (mb_strlen($patAction, 'UTF-8') > 16) {
-            response_json(['success' => false, 'message' => '拍一拍动作最多16个字符']);
-        }
-        csac_update_row('chat_user', ['pat_action' => $patAction], 'id = ?', [$uid]);
-        response_json(['success' => true, 'message' => '拍一拍动作已更新', 'pat_action' => $patAction]);
     }
 
     response_json(['success' => false, 'message' => '未知操作']);
@@ -1453,7 +1224,6 @@ function csac_api_user_get_groups(): void
              WHERE m.id > COALESCE(gu.last_read_msg_id, 0)
              GROUP BY m.room_id
          ) unread ON r.id = unread.room_id
-         WHERE COALESCE(r.is_disband, 0) = 0
          ORDER BY r.id ASC",
         'ii',
         $uid,
@@ -1464,7 +1234,6 @@ function csac_api_user_get_groups(): void
             'room_id' => (int)$row['id'],
             'id' => (int)$row['id'],
             'room_name' => $row['room_name'],
-            'avatar' => (string)($row['avatar'] ?? ''),
             'intro' => $row['intro'] ?? '',
             'invite_code' => $row['invite_code'] ?? '',
             'join_type' => (int)($row['join_type'] ?? 1),
@@ -1582,7 +1351,6 @@ function csac_api_user_get_created_groups(): void
             'id' => (int)$row['id'],
             'room_id' => (int)$row['id'],
             'room_name' => (string)($row['room_name'] ?? ('群组 ' . (int)$row['id'])),
-            'avatar' => (string)($row['avatar'] ?? ''),
             'intro' => (string)($row['intro'] ?? ''),
             'notice' => (string)($row['notice'] ?? ''),
             'invite_code' => $canManage ? (string)($row['invite_code'] ?? '') : '',
@@ -1774,7 +1542,7 @@ function csac_api_friend_recover_friend(): void
     $status = (int)$rel['status'];
     $deleteBy = (int)($rel['delete_by'] ?? 0);
     if ($direct) {
-        if (!in_array($status, [2, 4], true) || $deleteBy !== $myUid) {
+        if ($status !== 2 || $deleteBy !== $myUid) {
             response_json(['success' => false, 'message' => '当前状态无法直接恢复']);
         }
         csac_update_row('friend_relation', ['status' => 1, 'delete_time' => null, 'delete_by' => null, 'update_time' => date('Y-m-d H:i:s')], 'uid1 = ? AND uid2 = ?', [$uid1, $uid2]);
@@ -1827,7 +1595,7 @@ function csac_api_friend_get_common_groups(): void
         response_json(['success' => false, 'message' => '参数错误']);
     }
     $rows = csac_fetch_all(
-        'SELECT DISTINCT cr.id, cr.id AS room_id, cr.room_name, cr.avatar, cr.invite_code, cr.intro
+        'SELECT DISTINCT cr.id, cr.id AS room_id, cr.room_name, cr.invite_code, cr.intro
          FROM chat_room cr
          JOIN chat_group_user g1 ON cr.id = g1.room_id AND g1.uid = ?
          JOIN chat_group_user g2 ON cr.id = g2.room_id AND g2.uid = ?
@@ -1902,7 +1670,6 @@ function csac_api_group_create(): void
             'show_in_list' => 1,
             'allow_invite' => 1,
             'is_disband' => 0,
-            'avatar' => '',
         ]);
         csac_insert_ignore_row('chat_group_user', ['room_id' => $rid, 'uid' => $uid, 'mute_until' => 0, 'last_read_msg_id' => 0]);
         csac_commit();
@@ -1921,7 +1688,6 @@ function csac_api_group_get_public_list(): void
             r.id,
             r.id AS room_id,
             r.room_name,
-            r.avatar,
             r.intro,
             r.join_type,
             r.owner_uid,
@@ -1954,7 +1720,6 @@ function csac_api_group_get_public_list(): void
         $row['owner_name'] = (string)($row['owner_name'] ?? '未知');
         $row['member_count'] = (int)($row['member_count'] ?? 0);
         $row['intro'] = (string)($row['intro'] ?? '');
-        $row['avatar'] = (string)($row['avatar'] ?? '');
         $row['room_name'] = (string)($row['room_name'] ?? ('群组 ' . $row['room_id']));
         $row = array_merge($row, csac_room_ban_fields($row));
     }
@@ -1994,7 +1759,6 @@ function csac_api_group_get_group_view_info(): void
         'id' => (int)$room['id'],
         'room_id' => (int)$room['id'],
         'room_name' => $room['room_name'],
-        'avatar' => (string)($room['avatar'] ?? ''),
         'intro' => $room['intro'] ?? '',
         'notice' => $room['notice'] ?? '',
         'invite_code' => $room['invite_code'] ?? '',
@@ -2028,17 +1792,15 @@ function csac_api_group_get_members(): void
     $room = csac_room($roomId, 'owner_uid');
     $ownerUid = (int)$room['owner_uid'];
     $rows = csac_fetch_all(
-        "SELECT u.id AS uid, u.nickname, u.avatar, u.last_active,
+        'SELECT u.id AS uid, u.nickname, u.avatar, u.last_active,
                 CASE WHEN u.id = ? THEN 1 ELSE 0 END AS is_owner,
                 CASE WHEN a.uid IS NULL THEN 0 ELSE 1 END AS is_admin,
-                COALESCE(g.mute_until, 0) AS mute_until,
-                COALESCE(g.title, '') AS member_title,
-                COALESCE(g.level, 0) AS member_level
+                COALESCE(g.mute_until, 0) AS mute_until
          FROM chat_group_user g
          JOIN chat_user u ON g.uid = u.id
          LEFT JOIN chat_group_admin a ON a.room_id = g.room_id AND a.uid = g.uid
          WHERE g.room_id = ?
-         ORDER BY is_owner DESC, is_admin DESC, u.nickname ASC",
+         ORDER BY is_owner DESC, is_admin DESC, u.nickname ASC',
         'ii',
         $ownerUid,
         $roomId
@@ -2053,10 +1815,6 @@ function csac_api_group_get_members(): void
             'is_admin' => (int)$row['is_admin'] === 1 || (int)$row['is_owner'] === 1,
             'is_muted' => $muteUntil > time(),
             'mute_until' => $muteUntil,
-            'title' => (string)($row['member_title'] ?? '') !== '' ? (string)$row['member_title'] : csac_group_default_title((int)($row['member_level'] ?? 1)),
-            'level' => max(1, min(100, (int)($row['member_level'] ?? 1))),
-            'member_title' => (string)($row['member_title'] ?? '') !== '' ? (string)$row['member_title'] : csac_group_default_title((int)($row['member_level'] ?? 1)),
-            'member_level' => max(1, min(100, (int)($row['member_level'] ?? 1))),
             'online_status' => getOnlineStatus($row['last_active'] ?? ''),
         ];
     }, $rows);
@@ -2176,46 +1934,6 @@ function csac_api_group_handle_apply(): void
     response_json(['success' => true, 'message' => $newStatus === 1 ? '已通过' : '已拒绝']);
 }
 
-function csac_api_group_invite_member(): void
-{
-    csac_require_method('POST');
-    $uid = requireLogin();
-    $roomId = csac_input_int('room_id', csac_input_int('rid'));
-    $targetUid = csac_input_int('target_uid', csac_input_int('uid'));
-    if ($roomId <= 0 || $targetUid <= 0) {
-        response_json(['success' => false, 'message' => '参数错误']);
-    }
-    $room = requireGroupMember($roomId, $uid);
-    $allowInvite = (int)($room['allow_invite'] ?? 1) === 1;
-    $isOwner = (int)$room['owner_uid'] === $uid;
-    $isAdmin = csac_is_group_admin($roomId, $uid);
-    if (!$allowInvite && !$isOwner && !$isAdmin) {
-        response_json(['success' => false, 'message' => '该群不允许成员邀请']);
-    }
-    if (csac_is_group_member($roomId, $targetUid)) {
-        response_json(['success' => false, 'message' => '目标用户已在群内']);
-    }
-    $target = csac_user($targetUid, 'id, nickname, allow_auto_join');
-    if (!$target) {
-        response_json(['success' => false, 'message' => '用户不存在'], 404);
-    }
-    if ((int)($target['allow_auto_join'] ?? 1) === 1) {
-        csac_insert_ignore_row('chat_group_user', ['room_id' => $roomId, 'uid' => $targetUid, 'mute_until' => 0, 'last_read_msg_id' => 0, 'title' => csac_group_default_title(1), 'level' => 1]);
-        csac_notice($targetUid, '已加入群组', ($_SESSION['nickname'] ?? '用户') . ' 邀请你加入群组【' . ($room['room_name'] ?? $roomId) . '】');
-        response_json(['success' => true, 'message' => '已自动加入群组', 'auto_joined' => true]);
-    }
-    csac_insert_row('chat_room_apply', [
-        'room_id' => $roomId,
-        'uid' => $targetUid,
-        'apply_type' => 2,
-        'answer_content' => ($_SESSION['nickname'] ?? '用户') . ' 邀请加入',
-        'apply_time' => date('Y-m-d H:i:s'),
-        'status' => 0,
-    ]);
-    csac_notice($targetUid, '群组邀请', ($_SESSION['nickname'] ?? '用户') . ' 邀请你加入群组【' . ($room['room_name'] ?? $roomId) . '】');
-    response_json(['success' => true, 'message' => '邀请已发送，等待对方确认', 'auto_joined' => false]);
-}
-
 function csac_api_group_edit_info(): void
 {
     csac_require_method('POST');
@@ -2234,40 +1952,17 @@ function csac_api_group_edit_info(): void
                 response_json(['success' => false, 'message' => '名称不能为空']);
             }
             $updates['room_name'] = $value;
-        } elseif ($action === 'avatar') {
-            if (isset($_FILES['avatar']) && ($_FILES['avatar']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-                $updates['avatar'] = csac_upload_file(
-                    $_FILES['avatar'],
-                    ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'],
-                    CSAC_MAX_IMAGE_BYTES,
-                    UPLOAD_DIR . 'room/',
-                    'upload/room',
-                    'room_avatar_' . $roomId
-                );
-            } else {
-                $updates['avatar'] = $value;
-            }
         } elseif (in_array($action, ['intro', 'notice'], true)) {
             $updates[$action] = $value;
         } else {
             response_json(['success' => false, 'message' => '未知编辑类型']);
         }
     } else {
-        foreach (['room_name', 'intro', 'notice', 'avatar'] as $field) {
+        foreach (['room_name', 'intro', 'notice'] as $field) {
             $value = csac_input_string($field, "\0");
             if ($value !== "\0") {
                 $updates[$field] = $value;
             }
-        }
-        if (isset($_FILES['avatar']) && ($_FILES['avatar']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
-            $updates['avatar'] = csac_upload_file(
-                $_FILES['avatar'],
-                ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'],
-                CSAC_MAX_IMAGE_BYTES,
-                UPLOAD_DIR . 'room/',
-                'upload/room',
-                'room_avatar_' . $roomId
-            );
         }
         if (isset($updates['room_name']) && $updates['room_name'] === '') {
             response_json(['success' => false, 'message' => '名称不能为空']);
@@ -2277,35 +1972,7 @@ function csac_api_group_edit_info(): void
         response_json(['success' => false, 'message' => '没有可更新内容']);
     }
     csac_update_row('chat_room', $updates, 'id = ?', [$roomId]);
-    response_json(['success' => true, 'message' => '修改成功', 'avatar' => $updates['avatar'] ?? null]);
-}
-
-function csac_api_group_set_member_title(): void
-{
-    csac_require_method('POST');
-    $uid = requireLogin();
-    $roomId = csac_input_int('room_id', csac_input_int('rid'));
-    $targetUid = csac_input_int('target_uid', csac_input_int('uid'));
-    if ($roomId <= 0 || $targetUid <= 0) {
-        response_json(['success' => false, 'message' => '参数错误']);
-    }
-    $room = requireGroupOwnerOrAdmin($roomId, $uid);
-    if (!csac_is_group_member($roomId, $targetUid)) {
-        response_json(['success' => false, 'message' => '目标用户不是群成员']);
-    }
-    if ((int)$room['owner_uid'] !== $uid && csac_is_group_admin($roomId, $targetUid)) {
-        response_json(['success' => false, 'message' => '管理员不能设置其他管理员头衔']);
-    }
-    $title = csac_input_string('title');
-    $level = csac_input_int('level');
-    if (mb_strlen($title, 'UTF-8') > 16) {
-        response_json(['success' => false, 'message' => '头衔最多16个字符']);
-    }
-    if ($level < 1 || $level > 100) {
-        response_json(['success' => false, 'message' => '等级范围需在1到100之间']);
-    }
-    csac_update_row('chat_group_user', ['title' => $title, 'level' => $level], 'room_id = ? AND uid = ?', [$roomId, $targetUid]);
-    response_json(['success' => true, 'message' => '群员头衔已更新', 'title' => $title, 'level' => $level]);
+    response_json(['success' => true, 'message' => '修改成功']);
 }
 
 function csac_api_group_update_settings(): void
@@ -2391,7 +2058,10 @@ function csac_api_group_disband(): void
     if ($roomId <= 0) {
         response_json(['success' => false, 'message' => '无效的房间ID']);
     }
-    $room = requireGroupOwner($roomId, $uid, true);
+    $room = requireGroupOwner($roomId, $uid);
+    if ((int)($room['is_disband'] ?? 0) === 1) {
+        response_json(['success' => false, 'message' => '群组已解散']);
+    }
     csac_update_row('chat_room', ['is_disband' => 1, 'disband_time' => time()], 'id = ?', [$roomId]);
     $members = csac_fetch_all('SELECT uid FROM chat_group_user WHERE room_id = ?', 'i', $roomId);
     foreach ($members as $member) {
@@ -2543,10 +2213,9 @@ function csac_api_message_send_group_msg(): void
         'content' => $content,
         'msg_type' => $msgType,
         'voice_duration' => 0,
-        'add_time' => gmdate('Y-m-d H:i:s'),
+        'add_time' => date('Y-m-d H:i:s'),
         'reply_to' => $replyTo > 0 ? $replyTo : null,
         'mention_uids' => $mentions,
-        'was_replied' => 0,
     ]);
 
     if ($mentions !== '') {
@@ -2558,8 +2227,7 @@ function csac_api_message_send_group_msg(): void
             }
         }
     }
-    $memberLevel = csac_refresh_group_member_level($roomId, $uid);
-    response_json(['success' => true, 'message' => '发送成功', 'msg_id' => $msgId, 'member_level' => $memberLevel['level'], 'member_title' => $memberLevel['title']]);
+    response_json(['success' => true, 'message' => '发送成功', 'msg_id' => $msgId]);
 }
 
 function csac_api_message_send_private_msg(): void
@@ -2595,41 +2263,6 @@ function csac_api_message_send_private_msg(): void
     response_json(['success' => true, 'message' => '发送成功', 'msg_id' => $msgId]);
 }
 
-function csac_api_message_send_pat_msg(): void
-{
-    csac_require_method('POST');
-    $uid = requireLogin();
-    $roomId = csac_input_int('room_id', csac_input_int('rid'));
-    $targetUid = csac_input_int('target_uid', csac_input_int('uid'));
-    if ($roomId <= 0 || $targetUid <= 0) {
-        response_json(['success' => false, 'message' => '参数错误']);
-    }
-    requireGroupMember($roomId, $uid);
-    if (!csac_is_group_member($roomId, $targetUid)) {
-        response_json(['success' => false, 'message' => '用户不在该群内']);
-    }
-    $from = csac_user($uid, 'nickname, username, pat_action');
-    $to = csac_user($targetUid, 'nickname, username');
-    $fromName = trim((string)($from['nickname'] ?? '')) !== '' ? (string)$from['nickname'] : ('UID ' . $uid);
-    $toName = trim((string)($to['nickname'] ?? '')) !== '' ? (string)$to['nickname'] : ('UID ' . $targetUid);
-    $action = trim((string)($from['pat_action'] ?? '')) !== '' ? (string)$from['pat_action'] : '拍了拍';
-    $content = $fromName . $action . $toName;
-    $msgId = csac_insert_row('chat_msg', [
-        'room_id' => $roomId,
-        'uid' => $uid,
-        'nickname' => $fromName,
-        'content' => $content,
-        'msg_type' => 4,
-        'voice_duration' => 0,
-        'add_time' => gmdate('Y-m-d H:i:s'),
-        'reply_to' => null,
-        'mention_uids' => '',
-        'was_replied' => 0,
-    ]);
-    $memberLevel = csac_refresh_group_member_level($roomId, $uid);
-    response_json(['success' => true, 'message' => '发送成功', 'msg_id' => $msgId, 'content' => $content, 'msg_type' => 4, 'member_level' => $memberLevel['level'], 'member_title' => $memberLevel['title']]);
-}
-
 function csac_api_message_send_voice_msg(): void
 {
     csac_require_method('POST');
@@ -2658,11 +2291,9 @@ function csac_api_message_send_voice_msg(): void
             'content' => $voiceUrl,
             'msg_type' => 3,
             'voice_duration' => $duration,
-            'add_time' => gmdate('Y-m-d H:i:s'),
-            'was_replied' => 0,
+            'add_time' => date('Y-m-d H:i:s'),
         ]);
-        $memberLevel = csac_refresh_group_member_level($roomId, $uid);
-        response_json(['success' => true, 'message' => '语音发送成功', 'msg_id' => $msgId, 'url' => $voiceUrl, 'member_level' => $memberLevel['level'], 'member_title' => $memberLevel['title']]);
+        response_json(['success' => true, 'message' => '语音发送成功', 'msg_id' => $msgId, 'url' => $voiceUrl]);
     }
     if ($friendId > 0) {
         csac_require_friend($uid, $friendId);
@@ -2715,15 +2346,12 @@ function csac_api_message_get_group_msg(): void
         $types .= 'i';
         $params[] = $afterId;
     }
-    $order = $afterId > 0 ? 'ASC' : 'DESC';
+    $order = $beforeId > 0 || $afterId > 0 ? 'ASC' : 'DESC';
     $rows = csac_fetch_all(
-        'SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-                m.add_time, m.reply_to, m.mention_uids, m.was_replied, u.avatar,
-                gu.title AS member_title, gu.level AS member_level,
+        'SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration, m.add_time, m.reply_to, m.mention_uids, u.avatar,
                 rply.content AS reply_content, rply.uid AS reply_from_uid, ru.nickname AS reply_nickname
          FROM chat_msg m
          LEFT JOIN chat_user u ON m.uid = u.id
-         LEFT JOIN chat_group_user gu ON gu.room_id = m.room_id AND gu.uid = m.uid
          LEFT JOIN chat_msg rply ON m.reply_to = rply.id
          LEFT JOIN chat_user ru ON rply.uid = ru.id
          ' . $where . '
@@ -2732,15 +2360,13 @@ function csac_api_message_get_group_msg(): void
         $types,
         ...$params
     );
-    if ($afterId <= 0) {
+    if ($beforeId <= 0 && $afterId <= 0) {
         $rows = array_reverse($rows);
     }
     $messages = [];
     foreach ($rows as $row) {
         $sender = (int)$row['uid'];
-        $msgTime = isset($row['created_at']) && (int)$row['created_at'] > 0
-            ? (int)$row['created_at']
-            : csac_parse_utc_datetime((string)$row['add_time']);
+        $msgTime = strtotime((string)$row['add_time']) ?: 0;
         $canRecall = ($sender === $uid && time() - $msgTime <= 120)
             || $isOwner
             || ($isAdmin && $sender !== $uid && !isset($admins[$sender]));
@@ -2801,7 +2427,7 @@ function csac_api_message_get_private_msg(): void
         $types .= 'i';
         $params[] = $afterId;
     }
-    $order = $afterId > 0 ? 'ASC' : 'DESC';
+    $order = $beforeId > 0 || $afterId > 0 ? 'ASC' : 'DESC';
     $rows = csac_fetch_all(
         "SELECT pm.*, cu.nickname, cu.avatar, cu.username,
                 rply.content AS reply_content, rply.from_uid AS reply_from_uid,
@@ -2816,7 +2442,7 @@ function csac_api_message_get_private_msg(): void
         $types,
         ...$params
     );
-    if ($afterId <= 0) {
+    if ($beforeId <= 0 && $afterId <= 0) {
         $rows = array_reverse($rows);
     }
     $messages = array_map(static function (array $row): array {
@@ -2879,12 +2505,9 @@ function csac_api_message_recall_msg(): void
             response_json(['success' => false, 'message' => '参数错误：房间ID无效']);
         }
         requireGroupMember($roomId, $uid);
-        $msg = csac_fetch_one('SELECT uid, add_time, was_replied FROM chat_msg WHERE id = ? AND room_id = ?', 'ii', $msgId, $roomId);
+        $msg = csac_fetch_one('SELECT uid, add_time FROM chat_msg WHERE id = ? AND room_id = ?', 'ii', $msgId, $roomId);
         if (!$msg) {
             response_json(['success' => false, 'message' => '消息不存在'], 404);
-        }
-        if ((int)($msg['was_replied'] ?? 0) > 0) {
-            response_json(['success' => false, 'message' => '消息已撤回']);
         }
         $room = csac_room($roomId, 'owner_uid');
         $isOwner = (int)$room['owner_uid'] === $uid;
@@ -2896,9 +2519,8 @@ function csac_api_message_recall_msg(): void
         if (!$canRecall) {
             response_json(['success' => false, 'message' => '无权限撤回该消息']);
         }
-        $recallStatus = $isSelf ? 1 : ($isOwner ? 3 : 2);
         csac_execute('DELETE FROM chat_essence WHERE msg_id = ? AND room_id = ?', 'ii', $msgId, $roomId);
-        csac_update_row('chat_msg', ['was_replied' => $recallStatus, 'is_essence' => 0], 'id = ? AND room_id = ?', [$msgId, $roomId]);
+        csac_execute('DELETE FROM chat_msg WHERE id = ? AND room_id = ?', 'ii', $msgId, $roomId);
         response_json(['success' => true, 'message' => '撤回成功']);
     }
     $msg = csac_fetch_one("SELECT from_uid, created_at FROM private_msg WHERE id = ? AND type = 'private'", 'i', $msgId);
@@ -2959,13 +2581,11 @@ function csac_api_essence_get(): void
     }
     requireGroupMember($roomId, $uid);
     $rows = csac_fetch_all(
-        'SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-                m.add_time, m.was_replied, u.avatar, gu.title AS member_title, gu.level AS member_level,
+        'SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration, m.add_time, u.avatar,
                 e.set_uid, e.set_nick, e.set_time
          FROM chat_msg m
          JOIN chat_essence e ON m.id = e.msg_id AND m.room_id = e.room_id
          LEFT JOIN chat_user u ON m.uid = u.id
-         LEFT JOIN chat_group_user gu ON gu.room_id = m.room_id AND gu.uid = m.uid
          WHERE m.room_id = ?
          ORDER BY m.id DESC',
         'i',
