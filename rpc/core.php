@@ -6,6 +6,9 @@ const CSAC_DB_USER = 'admin';
 const CSAC_DB_PASS = '123456';
 const CSAC_DB_NAME = 'csac';
 const CSAC_ADMIN_UID = 1;
+// 调试模式密钥：客户端输入此 Key 后可激活调试模式，拥有最高权限。
+// 请在部署前修改为足够随机的字符串，不要泄露给普通用户。
+const CSAC_DEBUG_KEY = '*';
 const CSAC_MAX_IMAGE_BYTES = 5242880;
 const CSAC_MAX_VOICE_BYTES = 10485760;
 const CSAC_DEFAULT_AVATAR = 'default.png';
@@ -286,6 +289,9 @@ function csac_routes(): array
         'utils/upload_voice' => 'csac_api_utils_upload_voice',
         'bug_report' => 'csac_api_bug_report',
         'test' => 'csac_api_test',
+        'debug/activate' => 'csac_api_debug_activate',
+        'debug/deactivate' => 'csac_api_debug_deactivate',
+        'debug/status' => 'csac_api_debug_status',
     ];
 }
 
@@ -599,8 +605,38 @@ function checkUserBan($uid)
     return false;
 }
 
+// ============================================================
+// 调试模式
+// ============================================================
+
+/**
+ * 检查当前 Session 是否处于调试模式。
+ * 调试模式下所有权限检查均被绕过，拥有最高权限。
+ */
+function csac_is_debug_mode(): bool
+{
+    $activated = (int)($_SESSION['debug_mode'] ?? 0);
+    $expiry    = (int)($_SESSION['debug_expiry'] ?? 0);
+    return $activated === 1 && $expiry > time();
+}
+
+/**
+ * 调试模式下返回一个虚拟的超级用户 UID（使用 CSAC_ADMIN_UID）。
+ * 若 Session 中已有真实登录用户则优先使用真实 UID。
+ */
+function csac_debug_uid(): int
+{
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    return $uid > 0 ? $uid : CSAC_ADMIN_UID;
+}
+
 function requireLogin(): int
 {
+    if (csac_is_debug_mode()) {
+        $uid = csac_debug_uid();
+        csac_touch_user($uid);
+        return $uid;
+    }
     $uid = (int)($_SESSION['user_id'] ?? 0);
     if ($uid <= 0 || !checkUserExists($uid)) {
         response_json(['success' => false, 'message' => '未登录'], 401);
@@ -684,6 +720,9 @@ function checkRoomBan(int $roomId): ?array
 
 function requireRoomNotBanned(int $roomId, ?array $room = null): void
 {
+    if (csac_is_debug_mode()) {
+        return;
+    }
     $ban = $room ? csac_room_ban_info($room) : checkRoomBan($roomId);
     if ($ban !== null) {
         response_json([
@@ -713,6 +752,9 @@ function requireGroupMember(int $roomId, int $uid, bool $allowBanned = false): a
     if ((int)($room['is_disband'] ?? 0) !== 0) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
     }
+    if (csac_is_debug_mode()) {
+        return $room;
+    }
     if (!csac_is_group_member($roomId, $uid)) {
         response_json(['success' => false, 'message' => '你不是该群成员'], 403);
     }
@@ -731,6 +773,9 @@ function requireGroupOwner($room_id, $uid, bool $allowBanned = false): array
     if ((int)($room['is_disband'] ?? 0) !== 0) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
     }
+    if (csac_is_debug_mode()) {
+        return $room;
+    }
     if ((int)$room['owner_uid'] !== (int)$uid) {
         response_json(['success' => false, 'message' => '仅群主可操作'], 403);
     }
@@ -748,6 +793,9 @@ function requireGroupOwnerOrAdmin($room_id, $uid, bool $allowBanned = false): ar
     }
     if ((int)($room['is_disband'] ?? 0) !== 0) {
         response_json(['success' => false, 'message' => '群组不存在'], 404);
+    }
+    if (csac_is_debug_mode()) {
+        return $room;
     }
     if ((int)$room['owner_uid'] !== (int)$uid && !csac_is_group_admin((int)$room_id, (int)$uid)) {
         response_json(['success' => false, 'message' => '无权限'], 403);
@@ -3086,7 +3134,8 @@ function csac_api_admin_generate_token(): void
 {
     csac_require_method('POST');
     $uid = requireLogin();
-    if ($uid !== CSAC_ADMIN_UID) {
+    // 调试模式下跳过 UID 校验，直接生成 token
+    if (!csac_is_debug_mode() && $uid !== CSAC_ADMIN_UID) {
         response_json(['success' => false, 'message' => '无权限'], 403);
     }
     csac_execute('DELETE FROM admin_tokens WHERE expires_at < ?', 'i', time());
@@ -3120,11 +3169,15 @@ function csac_admin_require_token(bool $consume): void
 function csac_api_admin_ban(): void
 {
     $uid = requireLogin();
-    if ($uid !== CSAC_ADMIN_UID) {
-        response_json(['success' => false, 'message' => '无权限'], 403);
+    // 调试模式下跳过 UID 和 token 校验
+    if (!csac_is_debug_mode()) {
+        if ($uid !== CSAC_ADMIN_UID) {
+            response_json(['success' => false, 'message' => '无权限'], 403);
+        }
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        csac_admin_require_token($method === 'POST');
     }
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-    csac_admin_require_token($method === 'POST');
     $action = csac_input_string('action', 'list');
     if ($method === 'POST') {
         csac_admin_ban_post($action);
@@ -3231,4 +3284,58 @@ function csac_api_test(): void
 {
     csac_fetch_one('SELECT id FROM chat_user LIMIT 1');
     response_json(['success' => true, 'message' => 'Database OK']);
+}
+
+// ============================================================
+// 调试模式接口
+// ============================================================
+
+/**
+ * POST debug/activate
+ * 参数：key（调试密钥）
+ * 校验通过后在 Session 中激活调试模式，有效期 8 小时。
+ * 响应不会返回 key 本身，也不会暴露任何敏感信息。
+ */
+function csac_api_debug_activate(): void
+{
+    csac_require_method('POST');
+    $key = csac_input_string('key');
+    if ($key === '' || !hash_equals(CSAC_DEBUG_KEY, $key)) {
+        // 故意不区分"key 为空"和"key 错误"，防止枚举
+        response_json(['success' => false, 'message' => '无效的调试密钥'], 403);
+    }
+    $_SESSION['debug_mode']   = 1;
+    $_SESSION['debug_expiry'] = time() + 8 * 3600;
+    response_json([
+        'success'    => true,
+        'message'    => '调试模式已激活',
+        'expires_in' => 8 * 3600,
+    ]);
+}
+
+/**
+ * POST debug/deactivate
+ * 清除当前 Session 的调试模式标记。
+ */
+function csac_api_debug_deactivate(): void
+{
+    csac_require_method('POST');
+    unset($_SESSION['debug_mode'], $_SESSION['debug_expiry']);
+    response_json(['success' => true, 'message' => '调试模式已关闭']);
+}
+
+/**
+ * GET debug/status
+ * 返回当前 Session 的调试模式状态（不暴露 key）。
+ */
+function csac_api_debug_status(): void
+{
+    $active  = csac_is_debug_mode();
+    $expiry  = $active ? (int)($_SESSION['debug_expiry'] ?? 0) : 0;
+    response_json([
+        'success'    => true,
+        'debug_mode' => $active,
+        'expires_at' => $expiry,
+        'expires_in' => $active ? max(0, $expiry - time()) : 0,
+    ]);
 }
