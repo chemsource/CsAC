@@ -911,6 +911,7 @@ function csac_private_system_message(int $fromUid, int $toUid, string $content):
         'room_id' => 0,
         'created_at' => time(),
         'is_read' => 0,
+        'msg_type' => 1,
     ]);
 }
 
@@ -2646,6 +2647,7 @@ function csac_api_message_send_private_msg(): void
         'created_at' => time(),
         'is_read' => 0,
         'image_url' => $imageUrl,
+        'msg_type' => $imageUrl !== '' ? 2 : 1,
         'is_recalled' => 0,
         'reply_to' => $replyTo > 0 ? $replyTo : null,
     ]);
@@ -2734,6 +2736,7 @@ function csac_api_message_send_voice_msg(): void
             'is_read' => 0,
             'voice_url' => $voiceUrl,
             'duration' => $duration,
+            'msg_type' => 3,
             'is_recalled' => 0,
         ]);
         response_json(['success' => true, 'message' => '语音发送成功', 'msg_id' => $msgId, 'url' => $voiceUrl]);
@@ -2746,10 +2749,8 @@ function csac_api_message_send_emoji_msg(): void
     csac_require_method('POST');
     $uid = requireLogin();
     $roomId = csac_input_int('room_id');
+    $friendId = csac_input_int('friend_id');
     $abbr = csac_input_string('abbr');
-    if ($roomId <= 0) {
-        response_json(['success' => false, 'message' => '无效的房间ID']);
-    }
     if ($abbr === '') {
         response_json(['success' => false, 'message' => '表情包缩写不能为空']);
     }
@@ -2757,39 +2758,64 @@ function csac_api_message_send_emoji_msg(): void
     if (!$emoji) {
         response_json(['success' => false, 'message' => '表情包不存在']);
     }
-    requireRoomNotBanned($roomId);
-    $member = csac_fetch_one('SELECT mute_until FROM chat_group_user WHERE room_id = ? AND uid = ?', 'ii', $roomId, $uid);
-    if (!$member) {
-        response_json(['success' => false, 'message' => '你不是该群成员']);
+    if ($roomId > 0) {
+        requireRoomNotBanned($roomId);
+        $member = csac_fetch_one('SELECT mute_until FROM chat_group_user WHERE room_id = ? AND uid = ?', 'ii', $roomId, $uid);
+        if (!$member) {
+            response_json(['success' => false, 'message' => '你不是该群成员']);
+        }
+        if ((int)($member['mute_until'] ?? 0) > time()) {
+            response_json(['success' => false, 'message' => '你已被禁言至 ' . date('Y-m-d H:i:s', (int)$member['mute_until'])]);
+        }
+        $user = csac_user($uid, 'nickname, username');
+        $nickname = $user['nickname'] ?? '未知用户';
+        $msgId = csac_insert_row('chat_msg', [
+            'room_id' => $roomId,
+            'uid' => $uid,
+            'nickname' => $nickname,
+            'content' => $abbr,
+            'msg_type' => 5,
+            'voice_duration' => 0,
+            'add_time' => gmdate('Y-m-d H:i:s'),
+            'reply_to' => null,
+            'mention_uids' => '',
+            'was_replied' => 0,
+        ]);
+        $memberLevel = csac_refresh_group_member_level($roomId, $uid);
+        response_json([
+            'success' => true,
+            'message' => '发送成功',
+            'msg_id' => $msgId,
+            'content' => $abbr,
+            'msg_type' => 5,
+            'address' => $emoji['address'],
+            'member_level' => $memberLevel['level'],
+            'member_title' => $memberLevel['title'],
+        ]);
     }
-    if ((int)($member['mute_until'] ?? 0) > time()) {
-        response_json(['success' => false, 'message' => '你已被禁言至 ' . date('Y-m-d H:i:s', (int)$member['mute_until'])]);
+    if ($friendId > 0) {
+        csac_require_friend($uid, $friendId);
+        $msgId = csac_insert_row('private_msg', [
+            'from_uid' => $uid,
+            'to_uid' => $friendId,
+            'content' => $abbr,
+            'type' => 'private',
+            'room_id' => 0,
+            'created_at' => time(),
+            'is_read' => 0,
+            'msg_type' => 5,
+            'is_recalled' => 0,
+        ]);
+        response_json([
+            'success' => true,
+            'message' => '发送成功',
+            'msg_id' => $msgId,
+            'content' => $abbr,
+            'msg_type' => 5,
+            'address' => $emoji['address'],
+        ]);
     }
-    $user = csac_user($uid, 'nickname, username');
-    $nickname = $user['nickname'] ?? '未知用户';
-    $msgId = csac_insert_row('chat_msg', [
-        'room_id' => $roomId,
-        'uid' => $uid,
-        'nickname' => $nickname,
-        'content' => $abbr,
-        'msg_type' => 5,
-        'voice_duration' => 0,
-        'add_time' => gmdate('Y-m-d H:i:s'),
-        'reply_to' => null,
-        'mention_uids' => '',
-        'was_replied' => 0,
-    ]);
-    $memberLevel = csac_refresh_group_member_level($roomId, $uid);
-    response_json([
-        'success' => true,
-        'message' => '发送成功',
-        'msg_id' => $msgId,
-        'content' => $abbr,
-        'msg_type' => 5,
-        'address' => $emoji['address'],
-        'member_level' => $memberLevel['level'],
-        'member_title' => $memberLevel['title'],
-    ]);
+    response_json(['success' => false, 'message' => '缺少房间或好友ID']);
 }
 
 function csac_api_emoji_get_list(): void

@@ -878,12 +878,15 @@ GET  /rpc/UniCsAC.php/user/get_info
 
 参数：
 
-- `room_id`：群组 ID
+- `room_id`：群组 ID（群聊表情包时传）
+- `friend_id`：好友 ID（私聊表情包时传）
 - `abbr`：表情包缩写，对应 `emoji_list` 表的主键
 
-要求当前用户是群成员且未被禁言。后端会校验 `abbr` 在 `emoji_list` 表中是否存在。
+`room_id` 和 `friend_id` 二选一，必须传其中一个。后端会校验 `abbr` 在 `emoji_list` 表中是否存在。
 
-返回：
+群聊要求当前用户是群成员且未被禁言；私聊要求双方是好友。
+
+群聊返回：
 
 ```json
 {
@@ -898,10 +901,23 @@ GET  /rpc/UniCsAC.php/user/get_info
 }
 ```
 
+私聊返回：
+
+```json
+{
+  "success": true,
+  "message": "发送成功",
+  "msg_id": 123,
+  "content": "bc",
+  "msg_type": 5,
+  "address": "emojis/bc.jpg"
+}
+```
+
 说明：
 
-- 写入 `chat_msg` 的 `msg_type=5`，`content` 为表情包缩写（`abbr`）。
-- 接收方通过 `message/get_group_msg` 拉取消息时，`msg_type=5` 的消息会自动附带 `emoji_address`（图片地址）和 `emoji_full_name`（全名），无需额外请求。
+- 群聊写入 `chat_msg`，私聊写入 `private_msg`，`msg_type=5`，`content` 为表情包缩写（`abbr`）。
+- 接收方通过 `message/get_group_msg` 或 `message/get_private_msg` 拉取消息时，`msg_type=5` 的消息会自动附带 `emoji_address`（图片地址）和 `emoji_full_name`（全名），无需额外请求。
 - 撤回表情包消息与撤回普通消息规则一致，撤回后 `emoji_address` 和 `emoji_full_name` 会被清空。
 
 ### 获取表情包列表
