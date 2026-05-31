@@ -96,6 +96,8 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `friend_request_received`：是否收到对方好友请求
 - `is_blocked`：是否存在拉黑关系
 - `can_add_friend`：当前是否可添加好友
+- `allow_auto_join`：是否允许被好友邀请时自动入群，`1` 允许，`0` 需要确认邀请
+- `pat_action`：当前用户自定义的“拍一拍”动作，默认 `拍了拍`，最长 16 个字符
 
 ### 群组 `room/group`
 
@@ -103,6 +105,7 @@ GET  /rpc/UniCsAC.php/user/get_info
 
 - `id` / `room_id`：群组 ID
 - `room_name`：群组名称
+- `avatar`：群头像路径；可能为空
 - `intro`：简介
 - `notice`：公告
 - `invite_code`：一次性邀请码
@@ -144,7 +147,23 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `can_recall`：当前用户是否可撤回，群聊消息返回
 - `is_essence`：是否精华，群聊消息返回
 - `is_mentioned`：是否 @ 当前用户，群聊消息返回
+- `emoji_address`：表情包图片地址，`msg_type=5` 时返回
+- `emoji_full_name`：表情包全名，`msg_type=5` 时返回
 - `reply_to_me`：是否回复当前用户，群聊消息返回
+- `was_replied` / `recall_status`：群聊软撤回状态，`0` 未撤回，`1` 发送者撤回，`2` 管理员撤回，`3` 群主撤回
+- `is_recalled`：是否已撤回；兼容字段，群聊由 `was_replied > 0` 派生
+- `member_title` / `title`：群聊发送者在该群的头衔
+- `member_level` / `level`：群聊发送者在该群的等级，范围 `1-100`
+
+`msg_type` 当前取值：
+
+- `1`：文本
+- `2`：图片
+- `3`：语音
+- `4`：拍一拍/轻互动系统提示
+- `5`：表情包，`content` 为表情包缩写（`abbr`），接收时自动附带 `emoji_address` 和 `emoji_full_name`
+
+群聊撤回不会删除 `chat_msg` 原始记录，而是写入 `was_replied`。客户端应优先按 `recall_status` / `was_replied` 渲染撤回提示，并忽略原图片、语音内容。
 
 ## 认证
 
@@ -226,6 +245,28 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `action=nickname`，同时传 `nickname`
 - `action=password`，同时传 `old_password`、`new_password`、`confirm_password`
 - `action=avatar`，同时上传 `avatar` 文件
+- `action=privacy`，可传 `allow_auto_join=0|1`
+- `action=pat_action`，传 `pat_action` 或 `value`，为空时恢复默认 `拍了拍`，最长 16 个字符
+
+`action=privacy` 成功返回示例：
+
+```json
+{
+  "success": true,
+  "message": "设置已更新",
+  "allow_auto_join": 1
+}
+```
+
+`action=pat_action` 成功返回示例：
+
+```json
+{
+  "success": true,
+  "message": "拍一拍动作已更新",
+  "pat_action": "戳了戳"
+}
+```
 
 ### 升级密码
 
@@ -306,6 +347,7 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `add_time`
 - `is_read`
 - `link`
+- `route`：从 `link` 解析出的客户端路由，无法解析时为空字符串
 
 ### 标记通知已读
 
@@ -325,6 +367,10 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `uid`：可选，默认当前用户
 
 返回 `groups[]`。
+
+注意：已解散群组不会出现在 `user/get_groups` 和公开群列表中；对已解散群组调用成员、消息、管理类接口通常返回 `404`。
+
+拉黑关系说明：当前用户主动拉黑对方时，`user/get_info` 的 `is_blocked` 返回 `true`。`friend/recover_friend` 支持恢复自己发起的拉黑关系。
 
 ## 好友
 
@@ -470,7 +516,19 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `is_admin`
 - `is_muted`
 - `mute_until`
+- `title` / `member_title`：群内头衔；为空时后端返回等级默认头衔
+- `level` / `member_level`：群内等级，范围 `1-100`
 - `online_status`
+
+群成员等级由群内发言活跃度自动刷新。默认头衔规则：
+
+- `LV1-LV10`：青铜
+- `LV11-LV20`：白银
+- `LV21-LV40`：黄金
+- `LV41-LV80`：铂金
+- `LV81-LV100`：王者
+
+管理员自定义头衔后，不会被默认段位头衔覆盖。
 
 ### 申请或直接加入群组
 
@@ -508,6 +566,37 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `apply_id`
 - `action=pass|refuse`
 
+`applications[]` 中的 `apply_type`：
+
+- `1`：用户主动申请入群
+- `2`：群成员邀请产生的入群邀请
+
+### 邀请好友入群
+
+`POST /rpc/UniCsAC.php?route=group/invite_member`
+
+参数：
+
+- `room_id` 或 `rid`
+- `target_uid` 或 `uid`
+
+要求当前用户是群成员。若群设置 `allow_invite=0`，则只有群主或管理员可以邀请。
+
+行为：
+
+- 目标用户 `allow_auto_join=1`：直接加入群组，返回 `auto_joined: true`
+- 目标用户 `allow_auto_join=0`：写入入群邀请申请，返回 `auto_joined: false`
+
+返回示例：
+
+```json
+{
+  "success": true,
+  "message": "已自动加入群组",
+  "auto_joined": true
+}
+```
+
 ### 编辑群资料
 
 `POST /rpc/UniCsAC.php?route=group/edit_info`
@@ -525,7 +614,36 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `action=name|intro|notice`
 - `value`
 
+头像更新：
+
+- `action=avatar`，上传 `avatar` 文件，或传 `value` 作为头像路径
+- 或直接在参数写法一中传 `avatar` 字段 / 上传 `avatar` 文件
+
 要求群主或管理员。
+
+### 设置群成员头衔和等级
+
+`POST /rpc/UniCsAC.php?route=group/set_member_title`
+
+参数：
+
+- `room_id` 或 `rid`
+- `target_uid` 或 `uid`
+- `title`：头衔，最长 16 个字符，可为空
+- `level`：等级，`1-100`
+
+要求群主或管理员。管理员不能设置其他管理员的头衔，群主不受此限制。
+
+返回：
+
+```json
+{
+  "success": true,
+  "message": "群员头衔已更新",
+  "title": "黄金",
+  "level": 23
+}
+```
 
 ### 更新群设置
 
@@ -647,8 +765,29 @@ GET  /rpc/UniCsAC.php/user/get_info
 参数：
 
 - `room_id` 或 `rid`
+- `before_id`：可选，加载 ID 小于该消息 ID 的更早消息
+- `after_id`：可选，加载 ID 大于该消息 ID 的更新消息
+- `limit`：可选，返回数量，范围会被限制在 `20-200`，默认 `80`
 
-返回 `messages[]`。别名 route：`group/get_group_msg`。
+返回：
+
+```json
+{
+  "success": true,
+  "messages": [],
+  "has_more": false,
+  "limit": 80,
+  "before_id": 0,
+  "after_id": 0
+}
+```
+
+说明：
+
+- 未传 `after_id` 时，后端按最新消息向前取 `limit` 条，再按时间正序返回。
+- 传 `before_id` 时用于历史分页。
+- 传 `after_id` 时用于增量同步，返回 ID 大于 `after_id` 的消息。
+- 别名 route：`group/get_group_msg`。
 
 ### 发送私聊消息
 
@@ -671,6 +810,9 @@ GET  /rpc/UniCsAC.php/user/get_info
 
 - `friend_id`
 - `last_id`：可选，只返回 ID 大于该值的消息
+- `before_id`：可选，加载 ID 小于该消息 ID 的更早消息
+- `after_id`：可选，加载 ID 大于该消息 ID 的更新消息；默认使用 `last_id`
+- `limit`：可选，返回数量，范围会被限制在 `20-200`，默认 `80`
 
 返回：
 
@@ -678,11 +820,44 @@ GET  /rpc/UniCsAC.php/user/get_info
 {
   "success": true,
   "messages": [],
-  "last_id": 100
+  "last_id": 100,
+  "has_more": false,
+  "limit": 80,
+  "before_id": 0,
+  "after_id": 100
 }
 ```
 
 该接口会自动把对方发来的未读私聊标记为已读。
+
+### 发送拍一拍消息
+
+`POST /rpc/UniCsAC.php?route=message/send_pat_msg`
+
+兼容别名：
+
+`POST /rpc/UniCsAC.php?route=message/pat`
+
+参数：
+
+- `room_id` 或 `rid`
+- `target_uid` 或 `uid`
+
+要求双方都是该群成员。该接口会写入一条群聊消息，`msg_type=4`，`content` 为 `{发送者昵称}{发送者 pat_action}{目标昵称}`。
+
+返回：
+
+```json
+{
+  "success": true,
+  "message": "发送成功",
+  "msg_id": 123,
+  "content": "xxx拍了拍xxx",
+  "msg_type": 4,
+  "member_level": 1,
+  "member_title": "青铜"
+}
+```
 
 ### 发送语音消息
 
@@ -696,6 +871,69 @@ GET  /rpc/UniCsAC.php/user/get_info
 - `friend_id`：私聊语音时传
 
 支持音频 MIME：`audio/webm`、`audio/ogg`、`audio/mpeg`、`audio/wav`、`audio/mp4`。
+
+### 发送表情包消息
+
+`POST /rpc/UniCsAC.php?route=message/send_emoji_msg`
+
+参数：
+
+- `room_id`：群组 ID
+- `abbr`：表情包缩写，对应 `emoji_list` 表的主键
+
+要求当前用户是群成员且未被禁言。后端会校验 `abbr` 在 `emoji_list` 表中是否存在。
+
+返回：
+
+```json
+{
+  "success": true,
+  "message": "发送成功",
+  "msg_id": 123,
+  "content": "bc",
+  "msg_type": 5,
+  "address": "emojis/bc.jpg",
+  "member_level": 1,
+  "member_title": "青铜"
+}
+```
+
+说明：
+
+- 写入 `chat_msg` 的 `msg_type=5`，`content` 为表情包缩写（`abbr`）。
+- 接收方通过 `message/get_group_msg` 拉取消息时，`msg_type=5` 的消息会自动附带 `emoji_address`（图片地址）和 `emoji_full_name`（全名），无需额外请求。
+- 撤回表情包消息与撤回普通消息规则一致，撤回后 `emoji_address` 和 `emoji_full_name` 会被清空。
+
+### 获取表情包列表
+
+`GET /rpc/UniCsAC.php?route=emoji/get_list`
+
+需要登录。返回所有表情包的全名、缩写和地址，按缩写排序。
+
+返回：
+
+```json
+{
+  "success": true,
+  "emojis": [
+    {
+      "full_name": "把持不住啊",
+      "abbr": "bc",
+      "address": "emojis/bc.jpg"
+    },
+    {
+      "full_name": "冰鼠疑惑",
+      "abbr": "bs",
+      "address": "emojis/bs.jpg"
+    }
+  ]
+}
+```
+
+说明：
+
+- 客户端/前端可缓存此列表，用于展示表情包面板和发送时传入 `abbr`。
+- `abbr` 即为发送表情包消息时 `message/send_emoji_msg` 的 `abbr` 参数。
 
 ### 撤回消息
 
@@ -712,6 +950,14 @@ GET  /rpc/UniCsAC.php/user/get_info
 - 自己发送的消息 2 分钟内可撤回
 - 群主可撤回本群消息
 - 管理员可撤回普通成员消息
+- 群聊撤回为软撤回：消息记录保留，`was_replied` 写入撤回来源；同时取消该消息精华状态
+- 私聊撤回仍会删除对应 `private_msg` 记录
+
+群聊撤回状态：
+
+- `1`：发送者自己撤回
+- `2`：管理员撤回
+- `3`：群主撤回
 
 ### 标记已读
 
@@ -873,18 +1119,18 @@ GET  /rpc/UniCsAC.php/user/get_info
 
 参数：
 
-- `token`
+- `token`：由 `admin/generate_token` 获取
 
 返回当前封禁用户和封禁群组：
 
-- `users[]`
-- `rooms[]`
+- `users[]`：包含 `id`、`username`、`nickname`、`ban_until`、`ban_until_date`、`days_left`
+- `rooms[]`：包含 `id`、`room_name`、`ban_until`、`ban_until_date`、`days_left`
 
 `POST /rpc/UniCsAC.php?route=admin/admin_ban`
 
 公共参数：
 
-- `token`
+- `token`：由 `admin/generate_token` 获取，每次写操作消耗一个令牌
 - `action`
 
 动作：
