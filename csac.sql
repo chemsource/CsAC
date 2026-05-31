@@ -2,7 +2,6 @@
 -- version 5.2.3
 -- https://www.phpmyadmin.net/
 --
--- 主机： 1Panel-mariadb-xk9r
 -- 生成日期： 2026-05-31 14:00:47
 -- 服务器版本： 11.8.7-MariaDB-ubu2404
 -- PHP 版本： 8.3.31
@@ -16,12 +15,6 @@ SET time_zone = "+00:00";
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
-
---
--- 数据库： `csac`
---
-
--- --------------------------------------------------------
 
 --
 -- 表的结构 `admin_tokens`
