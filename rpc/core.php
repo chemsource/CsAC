@@ -2346,12 +2346,9 @@ function csac_api_group_set_member_title(): void
     if ($roomId <= 0 || $targetUid <= 0) {
         response_json(['success' => false, 'message' => '参数错误']);
     }
-    $room = requireGroupOwnerOrAdmin($roomId, $uid);
+    $room = requireGroupOwner($roomId, $uid);
     if (!csac_is_group_member($roomId, $targetUid)) {
         response_json(['success' => false, 'message' => '目标用户不是群成员']);
-    }
-    if ((int)$room['owner_uid'] !== $uid && csac_is_group_admin($roomId, $targetUid)) {
-        response_json(['success' => false, 'message' => '管理员不能设置其他管理员头衔']);
     }
     $title = csac_input_string('title');
     $level = csac_input_int('level');
