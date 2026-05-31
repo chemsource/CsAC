@@ -18,11 +18,11 @@
 
 | 层         | 技术                                 |
 |-----------|--------------------------------------|
-| 前端       | HTML5, CSS3, 原生 JavaScript (ES6)   |
+| 前端       | flutter web                         |
 | 后端       | PHP 7.2+ (原生 MySQLi)               |
 | 数据库     | MySQL / MariaDB                      |
 | 会话管理   | PHP Session + Cookie                 |
-| 文件存储   | 本地目录 (`upload/`, `uploads/chat`) |
+| 文件存储   | 服务器单独目录                        |
 
 ## ?? 安装部署
 
