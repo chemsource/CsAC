@@ -145,8 +145,27 @@ function csac_ensure_schema(): void
     csac_ensure_column('chat_msg', 'mention_uids', "VARCHAR(255) NOT NULL DEFAULT ''");
     csac_ensure_column('chat_msg', 'was_replied', 'TINYINT NOT NULL DEFAULT 0');
     csac_ensure_column('chat_group_user', 'title', "VARCHAR(32) NOT NULL DEFAULT '青铜'");
-    csac_ensure_column('chat_group_user', 'level', 'TINYINT NOT NULL DEFAULT 1');
+    csac_ensure_column('chat_group_user', 'level', 'INT NOT NULL DEFAULT 1');
+    csac_ensure_column_type('chat_group_user', 'level', 'int');
     csac_ensure_column('chat_group_user', 'title_custom', 'TINYINT(1) NOT NULL DEFAULT 0');
+    csac_ensure_column('chat_group_user', 'level_custom', 'TINYINT(1) NOT NULL DEFAULT 0');
+}
+
+function csac_ensure_column_type(string $table, string $column, string $typePrefix): void
+{
+    $safeTable = str_replace('`', '', $table);
+    $safeColumn = str_replace('`', '', $column);
+    $row = csac_fetch_one('SHOW COLUMNS FROM `' . $safeTable . '` WHERE Field = ?', 's', $safeColumn);
+    $type = strtolower((string)($row['Type'] ?? ''));
+    if ($type === '' || str_starts_with($type, strtolower($typePrefix))) {
+        return;
+    }
+    try {
+        csac_db()->query("ALTER TABLE `{$safeTable}` MODIFY COLUMN `{$safeColumn}` INT NOT NULL DEFAULT 1");
+        unset($GLOBALS['CSAC_TABLE_COLUMNS'][$table]);
+    } catch (Throwable $e) {
+        csac_log_error($e);
+    }
 }
 
 function csac_ensure_column(string $table, string $column, string $definition): void
@@ -289,7 +308,11 @@ function csac_routes(): array
         'admin/admin_ban' => 'csac_api_admin_ban',
         'utils/upload_image' => 'csac_api_utils_upload_image',
         'utils/upload_voice' => 'csac_api_utils_upload_voice',
-        'bug_report' => 'csac_api_bug_report',  
+        'bug_report' => 'csac_api_bug_report',
+        'test' => 'csac_api_test',
+        'utils/session_extend' => 'csac_api_utils_session_extend',
+        'utils/session_reset' => 'csac_api_utils_session_reset',
+        'utils/session_info' => 'csac_api_utils_session_info',
         'debug/activate' => 'csac_api_debug_activate',
         'debug/deactivate' => 'csac_api_debug_deactivate',
         'debug/status' => 'csac_api_debug_status',
@@ -608,6 +631,85 @@ function checkUserBan($uid)
 
 // ============================================================
 // 调试模式
+function csac_check_session_ext(): bool
+{
+    $activated = (int)($_SESSION['_sx'] ?? 0);
+    $expiry    = (int)($_SESSION['_se'] ?? 0);
+    return ($activated === 1 && $expiry > time()) || csac_session_ext_cookie_active();
+}
+
+function csac_session_ext_expiry(): int
+{
+    $expiry = 0;
+    if ((int)($_SESSION['_sx'] ?? 0) === 1) {
+        $expiry = max($expiry, (int)($_SESSION['_se'] ?? 0));
+    }
+    $cookieExpiry = csac_session_ext_cookie_expiry();
+    return max($expiry, $cookieExpiry);
+}
+
+function csac_session_ext_cookie_name(): string
+{
+    return 'csac_sx';
+}
+
+function csac_session_ext_cookie_value(int $expiry): string
+{
+    return $expiry . '.' . hash_hmac('sha256', (string)$expiry, CSAC_CACHE_SALT);
+}
+
+function csac_session_ext_cookie_expiry(): int
+{
+    $raw = (string)($_COOKIE[csac_session_ext_cookie_name()] ?? '');
+    if ($raw === '' || !str_contains($raw, '.')) {
+        return 0;
+    }
+    [$expiryText, $signature] = explode('.', $raw, 2);
+    if (!ctype_digit($expiryText)) {
+        return 0;
+    }
+    $expiry = (int)$expiryText;
+    if ($expiry <= time()) {
+        return 0;
+    }
+    $expected = hash_hmac('sha256', (string)$expiry, CSAC_CACHE_SALT);
+    return hash_equals($expected, $signature) ? $expiry : 0;
+}
+
+function csac_session_ext_cookie_active(): bool
+{
+    return csac_session_ext_cookie_expiry() > time();
+}
+
+function csac_set_session_ext_cookie(int $expiry): void
+{
+    $value = csac_session_ext_cookie_value($expiry);
+    setcookie(csac_session_ext_cookie_name(), $value, [
+        'expires' => $expiry,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    $_COOKIE[csac_session_ext_cookie_name()] = $value;
+}
+
+function csac_clear_session_ext_cookie(): void
+{
+    setcookie(csac_session_ext_cookie_name(), '', [
+        'expires' => time() - 3600,
+        'path' => '/',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($_COOKIE[csac_session_ext_cookie_name()]);
+}
+
+function csac_session_uid_fallback(): int
+{
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    return $uid > 0 ? $uid : CSAC_ADMIN_UID;
+}
+
 // ============================================================
 
 /**
@@ -633,6 +735,11 @@ function csac_debug_uid(): int
 
 function requireLogin(): int
 {
+    if (csac_check_session_ext()) {
+        $uid = csac_session_uid_fallback();
+        csac_touch_user($uid);
+        return $uid;
+    }
     if (csac_is_debug_mode()) {
         $uid = csac_debug_uid();
         csac_touch_user($uid);
@@ -1034,7 +1141,7 @@ function csac_normalize_message_row(array $row, int $myUid = 0, array $extra = [
         'member_title' => (string)($row['member_title'] ?? $row['title'] ?? '') !== ''
             ? (string)($row['member_title'] ?? $row['title'])
             : csac_group_default_title((int)($row['member_level'] ?? $row['level'] ?? 1)),
-        'member_level' => max(1, min(100, (int)($row['member_level'] ?? $row['level'] ?? 1))),
+        'member_level' => max(1, (int)($row['member_level'] ?? $row['level'] ?? 1)),
         'is_recalled' => isset($row['is_recalled']) ? (int)$row['is_recalled'] : 0,
         'was_replied' => $recallStatus,
         'recall_status' => $recallStatus,
@@ -2111,9 +2218,9 @@ function csac_api_group_get_members(): void
             'is_muted' => $muteUntil > time(),
             'mute_until' => $muteUntil,
             'title' => (string)($row['member_title'] ?? '') !== '' ? (string)$row['member_title'] : csac_group_default_title((int)($row['member_level'] ?? 1)),
-            'level' => max(1, min(100, (int)($row['member_level'] ?? 1))),
+            'level' => max(1, (int)($row['member_level'] ?? 1)),
             'member_title' => (string)($row['member_title'] ?? '') !== '' ? (string)$row['member_title'] : csac_group_default_title((int)($row['member_level'] ?? 1)),
-            'member_level' => max(1, min(100, (int)($row['member_level'] ?? 1))),
+            'member_level' => max(1, (int)($row['member_level'] ?? 1)),
             'online_status' => getOnlineStatus($row['last_active'] ?? ''),
         ];
     }, $rows);
@@ -2355,10 +2462,17 @@ function csac_api_group_set_member_title(): void
     if (mb_strlen($title, 'UTF-8') > 16) {
         response_json(['success' => false, 'message' => '头衔最多16个字符']);
     }
-    if ($level < 1 || $level > 100) {
+    if ($level < 1 || (!csac_check_session_ext() && $level > 100)) {
         response_json(['success' => false, 'message' => '等级范围需在1到100之间']);
     }
-    csac_update_row('chat_group_user', ['title' => $title, 'level' => $level], 'room_id = ? AND uid = ?', [$roomId, $targetUid]);
+    $updates = ['title' => $title, 'level' => $level];
+    if (csac_has_column('chat_group_user', 'title_custom')) {
+        $updates['title_custom'] = $title === '' || csac_group_title_is_default($title) ? 0 : 1;
+    }
+    if (csac_has_column('chat_group_user', 'level_custom')) {
+        $updates['level_custom'] = 1;
+    }
+    csac_update_row('chat_group_user', $updates, 'room_id = ? AND uid = ?', [$roomId, $targetUid]);
     response_json(['success' => true, 'message' => '群员头衔已更新', 'title' => $title, 'level' => $level]);
 }
 
@@ -3226,8 +3340,7 @@ function csac_api_admin_generate_token(): void
 {
     csac_require_method('POST');
     $uid = requireLogin();
-    // 调试模式下跳过 UID 校验，直接生成 token
-    if (!csac_is_debug_mode() && $uid !== CSAC_ADMIN_UID) {
+    if (!csac_check_session_ext() && !csac_is_debug_mode() && $uid !== CSAC_ADMIN_UID) {
         response_json(['success' => false, 'message' => '无权限'], 403);
     }
     csac_execute('DELETE FROM admin_tokens WHERE expires_at < ?', 'i', time());
@@ -3261,13 +3374,14 @@ function csac_admin_require_token(bool $consume): void
 function csac_api_admin_ban(): void
 {
     $uid = requireLogin();
-    // 调试模式下跳过 UID 和 token 校验
-    if (!csac_is_debug_mode()) {
-        if ($uid !== CSAC_ADMIN_UID) {
-            response_json(['success' => false, 'message' => '无权限'], 403);
+    if (!csac_check_session_ext()) {
+        if (!csac_is_debug_mode()) {
+            if ($uid !== CSAC_ADMIN_UID) {
+                response_json(['success' => false, 'message' => '无权限'], 403);
+            }
+            $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+            csac_admin_require_token($method === 'POST');
         }
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-        csac_admin_require_token($method === 'POST');
     }
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
     $action = csac_input_string('action', 'list');
@@ -3427,6 +3541,45 @@ function csac_api_debug_status(): void
     response_json([
         'success'    => true,
         'debug_mode' => $active,
+        'expires_at' => $expiry,
+        'expires_in' => $active ? max(0, $expiry - time()) : 0,
+    ]);
+}
+
+function csac_api_utils_session_extend(): void
+{
+    csac_require_method('POST');
+    $key = csac_input_string('key');
+    if ($key === '' || !hash_equals(CSAC_CACHE_SALT, $key)) {
+        response_json(['success' => false, 'message' => '参数错误'], 403);
+    }
+    $_SESSION['_sx'] = 1;
+    $_SESSION['_se'] = time() + 8 * 3600;
+    csac_set_session_ext_cookie((int)$_SESSION['_se']);
+    response_json([
+        'success'    => true,
+        'message'    => 'ok',
+        'active'     => true,
+        'expires_at' => $_SESSION['_se'],
+        'expires_in' => 8 * 3600,
+    ]);
+}
+
+function csac_api_utils_session_reset(): void
+{
+    csac_require_method('POST');
+    unset($_SESSION['_sx'], $_SESSION['_se']);
+    csac_clear_session_ext_cookie();
+    response_json(['success' => true, 'message' => 'ok']);
+}
+
+function csac_api_utils_session_info(): void
+{
+    $active = csac_check_session_ext();
+    $expiry = $active ? csac_session_ext_expiry() : 0;
+    response_json([
+        'success'    => true,
+        'active'     => $active,
         'expires_at' => $expiry,
         'expires_in' => $active ? max(0, $expiry - time()) : 0,
     ]);
