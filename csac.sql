@@ -189,14 +189,33 @@ CREATE TABLE `chat_user` (
   `pwd` varchar(64) NOT NULL,
   `add_time` int(11) NOT NULL,
   `avatar` varchar(255) DEFAULT '',
+  `email` varchar(255) DEFAULT NULL,
   `is_first_login` tinyint(1) DEFAULT 1 COMMENT '1=首次登录需看教程 0=已看过',
   `last_active` int(11) NOT NULL DEFAULT 0 COMMENT '最后活跃时间戳',
+  `platform` varchar(100) NOT NULL DEFAULT 'none',
   `ban_until` int(11) DEFAULT 0 COMMENT '封禁截止时间戳，0表示未封禁',
   `ban_reason` varchar(500) DEFAULT '' COMMENT '封禁原因',
   `theme_color` varchar(7) NOT NULL DEFAULT '#409eff',
   `allow_auto_join` int(11) NOT NULL DEFAULT 0 COMMENT '是否允许邀请后自动入群',
   `pat_action` varchar(32) NOT NULL DEFAULT '拍了拍'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `register_email_codes`
+--
+
+CREATE TABLE `register_email_codes` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `code_hash` varchar(255) NOT NULL,
+  `ip_hash` char(64) NOT NULL DEFAULT '',
+  `attempts` tinyint(3) UNSIGNED NOT NULL DEFAULT 0,
+  `used_at` int(11) NOT NULL DEFAULT 0,
+  `expires_at` int(11) NOT NULL,
+  `created_at` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -397,7 +416,16 @@ ALTER TABLE `chat_room_transfer`
 -- 表的索引 `chat_user`
 --
 ALTER TABLE `chat_user`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uniq_csac_chat_user_email` (`email`);
+
+--
+-- 表的索引 `register_email_codes`
+--
+ALTER TABLE `register_email_codes`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csac_register_email_created` (`email`,`created_at`),
+  ADD KEY `idx_csac_register_ip_created` (`ip_hash`,`created_at`);
 
 --
 -- 表的索引 `chat_user_notice`
@@ -526,6 +554,12 @@ ALTER TABLE `chat_room_transfer`
 --
 ALTER TABLE `chat_user`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- 使用表AUTO_INCREMENT `register_email_codes`
+--
+ALTER TABLE `register_email_codes`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- 使用表AUTO_INCREMENT `chat_user_notice`
