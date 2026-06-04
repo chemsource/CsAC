@@ -3,3 +3,13 @@
 ################################################################################
 
 /.vs
+
+# Local backend secrets and dependencies
+/rpc/smtp.local.php
+/rpc/vendor/
+/rpc/composer.lock
+
+# Runtime logs and uploads
+*.log
+/upload/
+/uploads/
