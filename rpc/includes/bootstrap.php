@@ -18,6 +18,7 @@ function csac_bootstrap(): void
         exit;
     }
 
+    csac_configure_session_lifetime();
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start();
     }
@@ -32,6 +33,35 @@ function csac_bootstrap(): void
         }
         throw new ErrorException($message, 0, $severity, $file, $line);
     });
+}
+
+function csac_configure_session_lifetime(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE || headers_sent()) {
+        return;
+    }
+
+    $lifetime = defined('CSAC_SESSION_LIFETIME_SECONDS')
+        ? max(0, (int)CSAC_SESSION_LIFETIME_SECONDS)
+        : 0;
+    if ($lifetime <= 0) {
+        return;
+    }
+
+    ini_set('session.gc_maxlifetime', (string)$lifetime);
+    ini_set('session.cookie_lifetime', (string)$lifetime);
+
+    $params = session_get_cookie_params();
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    session_set_cookie_params([
+        'lifetime' => $lifetime,
+        'path' => $params['path'] ?: '/',
+        'domain' => $params['domain'] ?? '',
+        'secure' => $secure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
 }
 
 function csac_send_cors_headers(): void
