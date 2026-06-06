@@ -2,8 +2,9 @@
 -- version 5.2.3
 -- https://www.phpmyadmin.net/
 --
--- 生成日期： 2026-05-31 14:00:47
--- 服务器版本： 11.8.7-MariaDB-ubu2404
+-- 主机： 1Panel-mariadb-xk9r
+-- 生成日期： 2026-06-06 10:29:34
+-- 服务器版本： 11.8.8-MariaDB-ubu2404
 -- PHP 版本： 8.3.31
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
@@ -15,6 +16,12 @@ SET time_zone = "+00:00";
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
+
+--
+-- 数据库： `csac`
+--
+
+-- --------------------------------------------------------
 
 --
 -- 表的结构 `admin_tokens`
@@ -72,7 +79,7 @@ CREATE TABLE `chat_group_user` (
   `mute_until` int(11) DEFAULT 0,
   `last_read_msg_id` int(11) DEFAULT 0,
   `title` varchar(30) NOT NULL DEFAULT '青铜' COMMENT '头衔',
-  `level` int(11) NOT NULL DEFAULT 1 COMMENT '等级',
+  `level` tinyint(3) NOT NULL DEFAULT 1 COMMENT '等级',
   `title_custom` tinyint(1) NOT NULL DEFAULT 0,
   `level_custom` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
@@ -189,33 +196,16 @@ CREATE TABLE `chat_user` (
   `pwd` varchar(64) NOT NULL,
   `add_time` int(11) NOT NULL,
   `avatar` varchar(255) DEFAULT '',
-  `email` varchar(255) DEFAULT NULL,
   `is_first_login` tinyint(1) DEFAULT 1 COMMENT '1=首次登录需看教程 0=已看过',
   `last_active` int(11) NOT NULL DEFAULT 0 COMMENT '最后活跃时间戳',
-  `platform` varchar(100) NOT NULL DEFAULT 'none',
   `ban_until` int(11) DEFAULT 0 COMMENT '封禁截止时间戳，0表示未封禁',
   `ban_reason` varchar(500) DEFAULT '' COMMENT '封禁原因',
   `theme_color` varchar(7) NOT NULL DEFAULT '#409eff',
   `allow_auto_join` int(11) NOT NULL DEFAULT 0 COMMENT '是否允许邀请后自动入群',
-  `pat_action` varchar(32) NOT NULL DEFAULT '拍了拍'
+  `pat_action` varchar(32) NOT NULL DEFAULT '拍了拍',
+  `platform` varchar(100) NOT NULL DEFAULT 'none',
+  `email` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci;
-
--- --------------------------------------------------------
-
---
--- 表的结构 `register_email_codes`
---
-
-CREATE TABLE `register_email_codes` (
-  `id` bigint(20) UNSIGNED NOT NULL,
-  `email` varchar(255) NOT NULL,
-  `code_hash` varchar(255) NOT NULL,
-  `ip_hash` char(64) NOT NULL DEFAULT '',
-  `attempts` tinyint(3) UNSIGNED NOT NULL DEFAULT 0,
-  `used_at` int(11) NOT NULL DEFAULT 0,
-  `expires_at` int(11) NOT NULL,
-  `created_at` int(11) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -346,6 +336,23 @@ CREATE TABLE `private_msg` (
   `msg_type` tinyint(4) NOT NULL DEFAULT 1 COMMENT '消息类型：1文本 2图片 3语音 5表情包'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `register_email_codes`
+--
+
+CREATE TABLE `register_email_codes` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `code_hash` varchar(255) NOT NULL,
+  `ip_hash` char(64) NOT NULL DEFAULT '',
+  `attempts` tinyint(3) UNSIGNED NOT NULL DEFAULT 0,
+  `used_at` int(11) NOT NULL DEFAULT 0,
+  `expires_at` int(11) NOT NULL,
+  `created_at` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+
 --
 -- 转储表的索引
 --
@@ -357,14 +364,16 @@ ALTER TABLE `admin_tokens`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `token` (`token`),
   ADD KEY `idx_token` (`token`),
-  ADD KEY `idx_expires` (`expires_at`);
+  ADD KEY `idx_expires` (`expires_at`),
+  ADD KEY `idx_csac_admin_tokens_token_expiry` (`token`,`expires_at`,`used`);
 
 --
 -- 表的索引 `chat_essence`
 --
 ALTER TABLE `chat_essence`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `msg_id` (`msg_id`);
+  ADD UNIQUE KEY `msg_id` (`msg_id`),
+  ADD KEY `idx_csac_essence_room_msg` (`room_id`,`msg_id`);
 
 --
 -- 表的索引 `chat_group_admin`
@@ -379,13 +388,18 @@ ALTER TABLE `chat_group_admin`
 --
 ALTER TABLE `chat_group_user`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uk_room_uid` (`room_id`,`uid`);
+  ADD UNIQUE KEY `uk_room_uid` (`room_id`,`uid`),
+  ADD KEY `idx_csac_group_user_uid_room` (`uid`,`room_id`),
+  ADD KEY `idx_csac_group_user_room_uid_read` (`room_id`,`uid`,`last_read_msg_id`);
 
 --
 -- 表的索引 `chat_msg`
 --
 ALTER TABLE `chat_msg`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csac_chat_msg_room_id_id` (`room_id`,`id`),
+  ADD KEY `idx_csac_chat_msg_room_uid_time` (`room_id`,`uid`,`add_time`),
+  ADD KEY `idx_csac_chat_msg_reply_to` (`reply_to`);
 
 --
 -- 表的索引 `chat_report`
@@ -420,18 +434,11 @@ ALTER TABLE `chat_user`
   ADD UNIQUE KEY `uniq_csac_chat_user_email` (`email`);
 
 --
--- 表的索引 `register_email_codes`
---
-ALTER TABLE `register_email_codes`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `idx_csac_register_email_created` (`email`,`created_at`),
-  ADD KEY `idx_csac_register_ip_created` (`ip_hash`,`created_at`);
-
---
 -- 表的索引 `chat_user_notice`
 --
 ALTER TABLE `chat_user_notice`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csac_notice_uid_read_time` (`uid`,`is_read`,`add_time`);
 
 --
 -- 表的索引 `csac_channel`
@@ -472,7 +479,9 @@ ALTER TABLE `friend_relation`
   ADD KEY `idx_friend_relation_uid1_uid2` (`uid1`,`uid2`),
   ADD KEY `idx_friend_relation_status` (`status`),
   ADD KEY `idx_friend_relation_uid1` (`uid1`),
-  ADD KEY `idx_friend_relation_uid2` (`uid2`);
+  ADD KEY `idx_friend_relation_uid2` (`uid2`),
+  ADD KEY `idx_csac_friend_rel_uid1_status` (`uid1`,`status`),
+  ADD KEY `idx_csac_friend_rel_uid2_status` (`uid2`,`status`);
 
 --
 -- 表的索引 `friend_request`
@@ -481,7 +490,9 @@ ALTER TABLE `friend_request`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_to_uid` (`to_uid`,`status`),
   ADD KEY `idx_from_uid` (`from_uid`),
-  ADD KEY `idx_status` (`status`);
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_csac_friend_req_to_status` (`to_uid`,`status`,`from_uid`),
+  ADD KEY `idx_csac_friend_req_from_to_status` (`from_uid`,`to_uid`,`status`);
 
 --
 -- 表的索引 `private_msg`
@@ -489,7 +500,18 @@ ALTER TABLE `friend_request`
 ALTER TABLE `private_msg`
   ADD PRIMARY KEY (`id`),
   ADD KEY `idx_from_to` (`from_uid`,`to_uid`),
-  ADD KEY `idx_created` (`created_at`);
+  ADD KEY `idx_created` (`created_at`),
+  ADD KEY `idx_csac_private_msg_read` (`to_uid`,`is_read`,`type`,`from_uid`),
+  ADD KEY `idx_csac_private_msg_from_pair` (`from_uid`,`to_uid`,`type`,`id`),
+  ADD KEY `idx_csac_private_msg_to_pair` (`to_uid`,`from_uid`,`type`,`id`);
+
+--
+-- 表的索引 `register_email_codes`
+--
+ALTER TABLE `register_email_codes`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_csac_register_email_created` (`email`,`created_at`),
+  ADD KEY `idx_csac_register_ip_created` (`ip_hash`,`created_at`);
 
 --
 -- 在导出的表使用AUTO_INCREMENT
@@ -556,12 +578,6 @@ ALTER TABLE `chat_user`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
--- 使用表AUTO_INCREMENT `register_email_codes`
---
-ALTER TABLE `register_email_codes`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
-
---
 -- 使用表AUTO_INCREMENT `chat_user_notice`
 --
 ALTER TABLE `chat_user_notice`
@@ -602,6 +618,12 @@ ALTER TABLE `friend_request`
 --
 ALTER TABLE `private_msg`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- 使用表AUTO_INCREMENT `register_email_codes`
+--
+ALTER TABLE `register_email_codes`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
