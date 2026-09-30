@@ -1,5 +1,5 @@
 // Copyright (c) Chemsource Studio. All rights reserved.
-// Contact: swcsstudio@126.com
+// Backend Version 2.2.0.260614-r1
 
 package main
 

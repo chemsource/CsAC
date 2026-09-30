@@ -1,0 +1,255 @@
+/// @acr-script
+/// @name random
+/// @language javascript
+/// @generated-by jsacratch
+
+// ===== Utility Functions =====
+
+/** 随机整数 [min, max] 含两端 */
+function randomInt(min, max) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/** 随机浮点数 [min, max)，保留指定小数位 */
+function randomFloat(min, max, decimals = 2) {
+  const scale = Math.pow(10, decimals);
+  const val = Math.random() * (max - min) + min;
+  return Math.round(val * scale) / scale;
+}
+
+/** 从数组中随机取一个元素 */
+function randomChoice(arr) {
+  if (!arr || arr.length === 0) return undefined;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** 随机布尔值。trueWeight 为 true 的权重比例，默认0.5 */
+function randomBool(trueWeight = 0.5) {
+  return Math.random() < trueWeight;
+}
+
+/** Fisher-Yates 洗牌算法 */
+function shuffle(arr) {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/** 生成指定长度的随机字符串 */
+function randomString(length = 8) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+/** 16进制随机颜色 */
+function randomHexColor() {
+  const r = randomInt(0, 255).toString(16).padStart(2, '0');
+  const g = randomInt(0, 255).toString(16).padStart(2, '0');
+  const b = randomInt(0, 255).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+}
+
+/** 生成 UUID v4 */
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+/** 加权随机。items 和 weights 长度相同，weights 为权重数组 */ 
+function weightedRandom(items, weights) {
+  if (!items || !weights || items.length !== weights.length) return undefined;
+  const total = weights.reduce((a, b) => a + b, 0);
+  let rand = Math.random() * total;
+  for (let i = 0; i < items.length; i++) {
+    rand -= weights[i];
+    if (rand <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+/** Box-Muller 正态分布随机数 */
+function randomNormal(mean = 0, stdDev = 1) {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return mean + stdDev * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/** 随机时间戳 (从现在到往后 N 秒内) */
+function randomTimestamp(maxSecondsAhead = 86400) {
+  const now = Math.floor(Date.now() / 1000);
+  return now + randomInt(1, maxSecondsAhead);
+}
+
+/** 随机 Chinese-like ID (如 A1B2C3) */
+function randomCode(length = 6) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+// ===== Bot Commands =====
+
+bot.command('/random', async (ctx) => {
+  const parts = ctx.text.trim().split(/\s+/);
+  if (parts[1] && parts[2]) {
+    const min = parseInt(parts[1]);
+    const max = parseInt(parts[2]);
+    if (!isNaN(min) && !isNaN(max) && min <= max) {
+      await ctx.reply(`随机数 [${min}, ${max}] = ${randomInt(min, max)}`);
+      return;
+    }
+  }
+  await ctx.reply(`随机数 [1, 100] = ${randomInt(1, 100)}\n用法: /random <min> <max>`);
+});
+
+bot.command('/dice', async (ctx) => {
+  const parts = ctx.text.trim().split(/\s+/);
+  const sides = parts[1] ? parseInt(parts[1]) || 6 : 6;
+  const result = randomInt(1, sides);
+  await ctx.reply(`🎲 掷 d${sides} = ${result}`);
+});
+
+bot.command('/coin', async (ctx) => {
+  const result = randomBool() ? '正面' : '反面';
+  await ctx.reply(`🪙 ${result}`);
+});
+
+bot.command('/choose', async (ctx) => {
+  const text = ctx.text.replace(/^\/choose\s*/, '').trim();
+  if (!text) {
+    await ctx.reply('用法: /choose 选项1 | 选项2 | 选项3');
+    return;
+  }
+  const options = text.split('|').map(s => s.trim()).filter(s => s);
+  if (options.length < 2) {
+    await ctx.reply('至少需要2个选项，用 | 分隔');
+    return;
+  }
+  const pick = randomChoice(options);
+  await ctx.reply(`选择结果: ${pick}\n(从 ${options.length} 个选项中)`, { sender_nickname: ctx.sender.nickname });
+});
+
+bot.command('/uuid', async (ctx) => {
+  await ctx.reply(`UUID: ${uuid()}`);
+});
+
+bot.command('/color', async (ctx) => {
+  const color = randomHexColor();
+  await ctx.reply(`🎨 ${color}`);
+});
+
+bot.command('/shuffle', async (ctx) => {
+  const text = ctx.text.replace(/^\/shuffle\s*/, '').trim();
+  if (!text) {
+    await ctx.reply('用法: /shuffle 选项1 选项2 选项3 ...');
+    return;
+  }
+  const items = text.split(/\s+/).filter(s => s);
+  if (items.length < 2) {
+    await ctx.reply('至少需要2个选项');
+    return;
+  }
+  const shuffled = shuffle(items);
+  await ctx.reply('打乱后: ' + shuffled.join(' → '));
+});
+
+bot.command('/rand', async (ctx) => {
+  const text = ctx.text.replace(/^\/rand\s*/, '').trim();
+  if (!text) {
+    await ctx.reply('用法:\n/rand num <min> <max>\n/rand float <min> <max> <decimals>\n/rand str <length>\n/rand pick a|b|c\n/rand weight a:5 b:3 c:1');
+    return;
+  }
+  const parts = text.split(/\s+/);
+  switch (parts[0]) {
+    case 'num': {
+      const min = parseInt(parts[1]) || 1;
+      const max = parseInt(parts[2]) || 100;
+      await ctx.reply(`随机整数 [${min}, ${max}] = ${randomInt(min, max)}`);
+      break;
+    }
+    case 'float': {
+      const min = parseFloat(parts[1]) || 0;
+      const max = parseFloat(parts[2]) || 1;
+      const dec = parseInt(parts[3]) || 4;
+      await ctx.reply(`随机浮点 = ${randomFloat(min, max, dec)}`);
+      break;
+    }
+    case 'str': {
+      const len = parseInt(parts[1]) || 8;
+      await ctx.reply(`随机字符串(${len}): ${randomString(len)}`);
+      break;
+    }
+    case 'pick': {
+      const rest = text.slice(5).split('|').map(s => s.trim()).filter(s => s);
+      if (rest.length < 2) {
+        await ctx.reply('至少2个选项，用 | 分隔');
+        return;
+      }
+      await ctx.reply(`随机选取: ${randomChoice(rest)}`);
+      break;
+    }
+    case 'weight': {
+      const items = [];
+      const weights = [];
+      const raw = text.slice(7).split(/\s+/).filter(s => s);
+      for (const r of raw) {
+        const [item, weight] = r.split(':');
+        items.push(item);
+        weights.push(parseFloat(weight) || 1);
+      }
+      if (items.length < 2) {
+        await ctx.reply('用法: /rand weight a:5 b:3 c:1');
+        return;
+      }
+      const pick = weightedRandom(items, weights);
+      await ctx.reply(`加权选取: ${pick}`);
+      break;
+    }
+    default:
+      await ctx.reply('未知子命令。支持: num, float, str, pick, weight');
+  }
+});
+
+bot.command('/normal', async (ctx) => {
+  const parts = ctx.text.trim().split(/\s+/);
+  const samples = parseInt(parts[1]) || 5;
+  const count = Math.min(samples, 10);
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    results.push(randomNormal(0, 1).toFixed(3));
+  }
+  await ctx.reply(`正态分布采样(μ=0, σ=1) x${count}: ${results.join(', ')}`);
+});
+
+// ===== Group Message Random Functions =====
+
+bot.on('group.message', async (ctx) => {
+  const text = ctx.text.trim().toLowerCase();
+
+  if (text === '扔骰子' || text === '掷骰子') {
+    const d6 = randomInt(1, 6);
+    const delay = randomInt(200, 1500);
+    await new Promise(r => setTimeout(r, delay));
+    await ctx.reply(`🎲 ${ctx.sender?.nickname || '你'} 掷出了 ${d6} 点`);
+  }
+
+  if (text === '抛硬币' || text === '硬币') {
+    const result = randomBool() ? '正面' : '反面';
+    await ctx.reply(`🪙 ${result}`);
+  }
+});

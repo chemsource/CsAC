@@ -1,5 +1,5 @@
 // Copyright (c) Chemsource Studio. All rights reserved.
-// Contact: swcsstudio@126.com
+// Backend Version 2.2.0.260614-r1
 
 package main
 
@@ -30,12 +30,37 @@ func apiFriendSendRequest(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "不能添加自己为好友"})
 		return
 	}
-	if getUser(c.app, toUID, "id, nickname") == nil {
+	target := getUser(c.app, toUID, "id, nickname, is_bot, platform, status")
+	if target == nil {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	targetActiveBot := activeBotAccount(c.app, toUID)
+	targetBotMarked := userHasBotMarker(target) || targetActiveBot
+	if intval(target, "status") != 1 || (targetBotMarked && !targetActiveBot) {
 		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
 		return
 	}
 	uid1, uid2 := friendPair(myUID, toUID)
 	rel := friendRelation(c.app, myUID, toUID)
+	if targetActiveBot {
+		if rel != nil {
+			switch intval(rel, "status") {
+			case 1:
+				c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们已经是好友了"})
+				return
+			}
+		}
+		now := localDateTime(time.Now().Unix())
+		if rel != nil {
+			_, _ = c.app.updateRow("friend_relation", map[string]any{"status": 1, "from_uid": myUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
+		} else {
+			_, _ = c.app.insertRow("friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 1, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now})
+		}
+		_, _ = c.app.exec("UPDATE friend_request SET status = 1 WHERE status = 0 AND ((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?))", myUID, toUID, toUID, myUID)
+		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Bot已添加为好友", "auto_accepted": true})
+		return
+	}
 	if rel != nil {
 		switch intval(rel, "status") {
 		case 1:
@@ -164,7 +189,7 @@ func friendRemoveCommon(c *Ctx, status int64, successMessage, noticeSuffix strin
 	}
 	uid1, uid2 := friendPair(myUID, friendID)
 	now := localDateTime(time.Now().Unix())
-	_, _ = c.app.updateRow("friend_relation", map[string]any{"status": status, "delete_time": now, "delete_by": myUID, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
+	_, _ = c.app.updateRow("friend_relation", map[string]any{"status": status, "delete_time": now, "delete_by": myUID, "notice_read": 0, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
 	nick := "用户"
 	if c.session != nil && c.session.Nickname != "" {
 		nick = c.session.Nickname
@@ -188,6 +213,23 @@ func apiFriendRecoverFriend(c *Ctx) {
 		return
 	}
 	rel := friendRelation(c.app, myUID, friendID)
+	target := getUser(c.app, friendID, "id, is_bot, platform, status")
+	if target != nil && intval(target, "status") == 1 && activeBotAccount(c.app, friendID) {
+		uid1, uid2 := friendPair(myUID, friendID)
+		now := localDateTime(time.Now().Unix())
+		if rel != nil {
+			if intval(rel, "status") == 1 {
+				c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们已经是好友了"})
+				return
+			}
+			_, _ = c.app.updateRow("friend_relation", map[string]any{"status": 1, "from_uid": myUID, "delete_time": nil, "delete_by": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
+		} else {
+			_, _ = c.app.insertRow("friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 1, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now})
+		}
+		_, _ = c.app.exec("UPDATE friend_request SET status = 1 WHERE status = 0 AND ((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?))", myUID, friendID, friendID, myUID)
+		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Bot已添加为好友", "auto_accepted": true})
+		return
+	}
 	if rel == nil {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们还不是好友"})
 		return
@@ -276,12 +318,44 @@ func apiFriendGetDeletedNotices(c *Ctx) {
 		return
 	}
 	rows, _ := c.app.fetchAll(`SELECT CASE WHEN f.uid1 = ? THEN f.uid2 ELSE f.uid1 END AS friend_id,
-        u.nickname, u.avatar, u.username, f.delete_time, f.delete_by
+        u.nickname, u.avatar, u.username, u.is_bot, f.delete_time, f.delete_by, COALESCE(f.notice_read, 0) AS is_read
         FROM friend_relation f
         JOIN chat_user u ON ((f.uid1 = ? AND f.uid2 = u.id) OR (f.uid2 = ? AND f.uid1 = u.id))
         WHERE f.status = 2 AND f.delete_time > DATE_SUB(NOW(), INTERVAL 3 DAY)
         ORDER BY f.delete_time DESC`, myUID, myUID, myUID)
-	c.JSON(http.StatusOK, map[string]any{"success": true, "notices": rowListToMaps(rows)})
+	notices := rowListToMaps(rows)
+	for _, row := range notices {
+		friendID := toInt64Default(row["friend_id"], 0)
+		deleteBy := toInt64Default(row["delete_by"], 0)
+		row["uid"] = friendID
+		row["id"] = friendID
+		row["deleted_by_me"] = deleteBy == myUID
+		row["deleted_by_friend"] = deleteBy == friendID
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true, "notices": notices})
+}
+
+func apiFriendMarkDeletedNoticeRead(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	myUID, ok := requireLogin(c)
+	if !ok {
+		return
+	}
+	if c.InputBool("read_all") {
+		_, _ = c.app.updateRow("friend_relation", map[string]any{"notice_read": 1}, "status = 2 AND (uid1 = ? OR uid2 = ?)", myUID, myUID)
+		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已标记已读"})
+		return
+	}
+	friendID := c.InputInt("friend_id", c.InputInt("uid"))
+	if friendID <= 0 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "参数错误"})
+		return
+	}
+	uid1, uid2 := friendPair(myUID, friendID)
+	_, _ = c.app.updateRow("friend_relation", map[string]any{"notice_read": 1}, "uid1 = ? AND uid2 = ? AND status = 2", uid1, uid2)
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已标记已读"})
 }
 
 func apiFriendGetFriendRequests(c *Ctx) {
@@ -289,7 +363,7 @@ func apiFriendGetFriendRequests(c *Ctx) {
 	if !ok {
 		return
 	}
-	rows, _ := c.app.fetchAll(`SELECT r.*, u.nickname, u.avatar, u.username
+	rows, _ := c.app.fetchAll(`SELECT r.*, u.nickname, u.avatar, u.username, u.is_bot
         FROM friend_request r
         JOIN chat_user u ON r.from_uid = u.id
         WHERE r.to_uid = ? AND r.status = 0
@@ -343,6 +417,7 @@ func apiGroupGetPublicList(c *Ctx) {
 	if _, ok := requireLogin(c); !ok {
 		return
 	}
+	// v2.1.1: 只显示 allow_search=1 的群
 	rows, _ := c.app.fetchAll(`SELECT r.id, r.id AS room_id, r.room_name, r.avatar, r.intro, r.join_type, r.owner_uid, r.ban_until, r.ban_reason,
         COALESCE(NULLIF(u.nickname, ''), CONCAT('UID ', r.owner_uid)) AS owner_name,
         COALESCE(m.member_count, 0) AS member_count
@@ -353,7 +428,7 @@ func apiGroupGetPublicList(c *Ctx) {
             FROM (SELECT id AS room_id, owner_uid AS uid FROM chat_room WHERE owner_uid > 0 UNION ALL SELECT room_id, uid FROM chat_group_user) member_source
             GROUP BY room_id
         ) m ON m.room_id = r.id
-        WHERE r.show_in_list = 1
+        WHERE r.show_in_list = 1 AND (r.allow_search = 1 OR r.allow_search IS NULL)
         ORDER BY r.id DESC`)
 	groups := []map[string]any{}
 	for _, row := range rows {
@@ -381,11 +456,17 @@ func apiGroupGetGroupViewInfo(c *Ctx) {
 		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "群组不存在"})
 		return
 	}
+	// v2.1.1: allow_search=0 的群，非成员无法查看详情
+	allowSearch := intval(room, "allow_search")
+	if allowSearch == 0 && !isGroupMember(c.app, rid, uid) {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "群组不存在"})
+		return
+	}
 	allowInvite := intval(room, "allow_invite")
 	isOwner := intval(room, "owner_uid") == uid
 	isAdmin := isGroupAdmin(c.app, rid, uid)
 	hasApply, _ := c.app.fetchOne("SELECT id FROM chat_room_apply WHERE room_id = ? AND uid = ? AND status = 0 LIMIT 1", rid, uid)
-	roomPayload := map[string]any{"id": intval(room, "id"), "room_id": intval(room, "id"), "room_name": str(room, "room_name"), "avatar": str(room, "avatar"), "intro": str(room, "intro"), "notice": str(room, "notice"), "invite_code": str(room, "invite_code"), "join_type": intval(room, "join_type"), "owner_uid": intval(room, "owner_uid"), "owner_name": strDefault(room, "owner_name", "未知"), "ask_question": str(room, "ask_question"), "fixed_code": str(room, "fixed_code"), "show_in_list": intval(room, "show_in_list"), "allow_invite": allowInvite}
+	roomPayload := map[string]any{"id": intval(room, "id"), "room_id": intval(room, "id"), "room_name": str(room, "room_name"), "avatar": str(room, "avatar"), "intro": str(room, "intro"), "notice": str(room, "notice"), "invite_code": str(room, "invite_code"), "join_type": intval(room, "join_type"), "owner_uid": intval(room, "owner_uid"), "owner_name": strDefault(room, "owner_name", "未知"), "ask_question": str(room, "ask_question"), "fixed_code": str(room, "fixed_code"), "show_in_list": intval(room, "show_in_list"), "allow_invite": allowInvite, "allow_search": allowSearch}
 	for k, v := range roomBanFields(room) {
 		roomPayload[k] = v
 	}
@@ -407,7 +488,7 @@ func apiGroupGetMembers(c *Ctx) {
 	}
 	room := getRoom(c.app, roomID, "owner_uid")
 	ownerUID := intval(room, "owner_uid")
-	rows, _ := c.app.fetchAll(`SELECT u.id AS uid, u.nickname, u.avatar, u.last_active,
+	rows, _ := c.app.fetchAll(`SELECT u.id AS uid, u.nickname, u.avatar, u.last_active, u.is_bot,
         CASE WHEN u.id = ? THEN 1 ELSE 0 END AS is_owner,
         CASE WHEN a.uid IS NULL THEN 0 ELSE 1 END AS is_admin,
         COALESCE(g.mute_until, 0) AS mute_until,
@@ -429,7 +510,7 @@ func apiGroupGetMembers(c *Ctx) {
 		if title == "" {
 			title = groupDefaultTitle(level)
 		}
-		members = append(members, map[string]any{"uid": intval(row, "uid"), "nickname": str(row, "nickname"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "is_owner": intval(row, "is_owner") == 1, "is_admin": intval(row, "is_admin") == 1 || intval(row, "is_owner") == 1, "is_muted": muteUntil > time.Now().Unix(), "mute_until": muteUntil, "title": title, "level": level, "member_title": title, "member_level": level, "online_status": onlineStatus(row["last_active"])})
+		members = append(members, map[string]any{"uid": intval(row, "uid"), "nickname": str(row, "nickname"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "is_bot": intval(row, "is_bot"), "is_owner": intval(row, "is_owner") == 1, "is_admin": intval(row, "is_admin") == 1 || intval(row, "is_owner") == 1, "is_muted": muteUntil > time.Now().Unix(), "mute_until": muteUntil, "title": title, "level": level, "member_title": title, "member_level": level, "online_status": onlineStatus(row["last_active"])})
 	}
 	c.JSON(http.StatusOK, map[string]any{"success": true, "members": members})
 }
@@ -447,14 +528,14 @@ func apiGroupGetApplications(c *Ctx) {
 	if _, ok := requireGroupOwnerOrAdmin(c, roomID, uid); !ok {
 		return
 	}
-	rows, _ := c.app.fetchAll(`SELECT a.*, u.nickname, u.username, u.avatar
+	rows, _ := c.app.fetchAll(`SELECT a.*, u.nickname, u.username, u.avatar, u.is_bot
         FROM chat_room_apply a
         JOIN chat_user u ON a.uid = u.id
         WHERE a.room_id = ? AND a.status = 0
         ORDER BY a.apply_time ASC, a.id ASC`, roomID)
 	applications := []map[string]any{}
 	for _, row := range rows {
-		applications = append(applications, map[string]any{"id": intval(row, "id"), "uid": intval(row, "uid"), "nickname": str(row, "nickname"), "username": str(row, "username"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "answer_content": str(row, "answer_content"), "apply_type": intval(row, "apply_type"), "apply_time": str(row, "apply_time")})
+		applications = append(applications, map[string]any{"id": intval(row, "id"), "uid": intval(row, "uid"), "nickname": str(row, "nickname"), "username": str(row, "username"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "is_bot": intval(row, "is_bot"), "answer_content": str(row, "answer_content"), "apply_type": intval(row, "apply_type"), "apply_time": str(row, "apply_time")})
 	}
 	c.JSON(http.StatusOK, map[string]any{"success": true, "applications": applications, "applies": applications, "requests": applications})
 }
@@ -484,9 +565,16 @@ func apiGroupApplyJoin(c *Ctx) {
 	if !requireRoomNotBanned(c, roomID, room) {
 		return
 	}
+	// v2.1.1: allow_search=0 的群，不允许通过搜索ID+邀请码加入，只能邀请/扫码
+	allowSearch := intval(room, "allow_search")
+	if allowSearch == 0 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该群不允许主动加入，只能通过群内邀请加入"})
+		return
+	}
 	switch intval(room, "join_type") {
 	case 1:
 		_, _ = c.app.insertIgnoreRow("chat_group_user", map[string]any{"room_id": roomID, "uid": uid, "mute_until": 0, "last_read_msg_id": 0})
+		pushBotEvent("group_member_join", map[string]any{"room_id": roomID, "uid": uid})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "成功加入群组"})
 	case 2, 3:
 		code := c.InputString("code")
@@ -499,6 +587,7 @@ func apiGroupApplyJoin(c *Ctx) {
 			return
 		}
 		_, _ = c.app.insertIgnoreRow("chat_group_user", map[string]any{"room_id": roomID, "uid": uid, "mute_until": 0, "last_read_msg_id": 0})
+		pushBotEvent("group_member_join", map[string]any{"room_id": roomID, "uid": uid})
 		if intval(room, "join_type") == 2 {
 			resetRoomCode(c.app, roomID)
 		}
@@ -561,6 +650,7 @@ func apiGroupHandleApply(c *Ctx) {
 	}
 	if newStatus == 1 {
 		resetRoomCode(c.app, roomID)
+		pushBotEvent("group_member_join", map[string]any{"room_id": roomID, "uid": intval(apply, "uid")})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已通过"})
 	} else {
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已拒绝"})
@@ -585,24 +675,38 @@ func apiGroupInviteMember(c *Ctx) {
 	if !ok {
 		return
 	}
-	if intval(room, "allow_invite") != 1 && intval(room, "owner_uid") != uid && !isGroupAdmin(c.app, roomID, uid) {
-		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该群不允许成员邀请"})
-		return
-	}
 	if isGroupMember(c.app, roomID, targetUID) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "目标用户已在群内"})
 		return
 	}
-	target := getUser(c.app, targetUID, "id, nickname, allow_auto_join")
+	target := getUser(c.app, targetUID, "id, nickname, allow_auto_join, is_bot, platform, status")
 	if target == nil {
 		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
 		return
 	}
+	targetActiveBot := activeBotAccount(c.app, targetUID)
+	targetBotMarked := userHasBotMarker(target) || targetActiveBot
+	if intval(target, "status") != 1 || (targetBotMarked && !targetActiveBot) {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	targetIsBot := targetActiveBot
+	if !targetIsBot && intval(room, "allow_invite") != 1 && intval(room, "owner_uid") != uid && !isGroupAdmin(c.app, roomID, uid) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该群不允许成员邀请"})
+		return
+	}
 	nick := sessionNickname(c)
-	if intval(target, "allow_auto_join") == 1 {
+	if targetIsBot || intval(target, "allow_auto_join") == 1 {
 		_, _ = c.app.insertIgnoreRow("chat_group_user", map[string]any{"room_id": roomID, "uid": targetUID, "mute_until": 0, "last_read_msg_id": 0, "title": groupDefaultTitle(1), "level": 1})
-		notice(c.app, targetUID, "已加入群组", fmt.Sprintf("%s 邀请你加入群组【%s】", nick, strDefault(room, "room_name", fmt.Sprintf("%d", roomID))))
-		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已自动加入群组", "auto_joined": true})
+		pushBotEvent("group_member_join", map[string]any{"room_id": roomID, "uid": targetUID})
+		if !targetIsBot {
+			notice(c.app, targetUID, "已加入群组", fmt.Sprintf("%s 邀请你加入群组【%s】", nick, strDefault(room, "room_name", fmt.Sprintf("%d", roomID))))
+		}
+		message := "已自动加入群组"
+		if targetIsBot {
+			message = "Bot已加入群组"
+		}
+		c.JSON(http.StatusOK, map[string]any{"success": true, "message": message, "auto_joined": true})
 		return
 	}
 	_, _ = c.app.insertRow("chat_room_apply", map[string]any{"room_id": roomID, "uid": targetUID, "apply_type": 2, "answer_content": nick + " 邀请加入", "apply_time": localDateTime(time.Now().Unix()), "status": 0})
@@ -755,7 +859,7 @@ func apiGroupUpdateSettings(c *Ctx) {
 			}
 		}
 	}
-	for _, flag := range []string{"show_in_list", "allow_invite"} {
+	for _, flag := range []string{"show_in_list", "allow_invite", "allow_search"} {
 		if c.HasInput(flag) {
 			updates[flag] = boolInt(c.InputBool(flag))
 		}
@@ -855,6 +959,7 @@ func apiGroupDisband(c *Ctx) {
 		return
 	}
 	_, _ = c.app.updateRow("chat_room", map[string]any{"is_disband": 1, "disband_time": time.Now().Unix()}, "id = ?", roomID)
+	pushBotEvent("group_disband", map[string]any{"room_id": roomID, "operator_uid": uid})
 	members, _ := c.app.fetchAll("SELECT uid FROM chat_group_user WHERE room_id = ?", roomID)
 	for _, member := range members {
 		notice(c.app, intval(member, "uid"), "群组已解散", "该群组已被群主解散，3天后将自动永久清除所有数据")
@@ -885,6 +990,7 @@ func apiGroupLeave(c *Ctx) {
 	}
 	_, _ = c.app.exec("DELETE FROM chat_group_user WHERE room_id = ? AND uid = ?", roomID, uid)
 	_, _ = c.app.exec("DELETE FROM chat_group_admin WHERE room_id = ? AND uid = ?", roomID, uid)
+	pushBotEvent("group_member_leave", map[string]any{"room_id": roomID, "uid": uid})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已退出群组"})
 }
 
@@ -927,11 +1033,13 @@ func apiGroupMuteMember(c *Ctx) {
 		}
 		until := time.Now().Unix() + minutes*60
 		_, _ = c.app.updateRow("chat_group_user", map[string]any{"mute_until": until}, "room_id = ? AND uid = ?", roomID, targetUID)
+		pushBotEvent("group_member_mute", map[string]any{"room_id": roomID, "uid": targetUID, "operator_uid": uid, "until": until})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": fmt.Sprintf("已禁言 %d 分钟", minutes)})
 		return
 	}
 	if action == "unmute" {
 		_, _ = c.app.updateRow("chat_group_user", map[string]any{"mute_until": 0}, "room_id = ? AND uid = ?", roomID, targetUID)
+		pushBotEvent("group_member_unmute", map[string]any{"room_id": roomID, "uid": targetUID, "operator_uid": uid})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已解除禁言"})
 		return
 	}
@@ -971,6 +1079,7 @@ func apiGroupKickMember(c *Ctx) {
 	_, _ = c.app.exec("DELETE FROM chat_group_user WHERE room_id = ? AND uid = ?", roomID, targetUID)
 	_, _ = c.app.exec("DELETE FROM chat_group_admin WHERE room_id = ? AND uid = ?", roomID, targetUID)
 	resetRoomCode(c.app, roomID)
+	pushBotEvent("group_member_kick", map[string]any{"room_id": roomID, "uid": targetUID, "operator_uid": uid})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "已踢出"})
 }
 

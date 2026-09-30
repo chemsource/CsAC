@@ -1,5 +1,5 @@
 // Copyright (c) Chemsource Studio. All rights reserved.
-// Contact: swcsstudio@126.com
+// Backend Version 2.2.0.260614-r1
 
 package main
 
@@ -95,6 +95,18 @@ func apiMessageSendGroupMsg(c *Ctx) {
 		}
 	}
 	level := refreshGroupMemberLevel(c.app, roomID, uid)
+	// v2.2.0: 转发群消息事件到ServerBot
+	pushBotEvent("group_message", map[string]any{
+		"msg_id":     msgID,
+		"room_id":    roomID,
+		"uid":        uid,
+		"nickname":   nickname,
+		"content":    content,
+		"msg_type":   msgType,
+		"reply_to":   replyTo,
+		"image_urls": "",
+		"timestamp":  time.Now().Unix(),
+	})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID, "member_level": level["level"], "member_title": level["title"]})
 }
 
@@ -147,6 +159,17 @@ func apiMessageSendPrivateMsg(c *Ctx) {
 	if err != nil {
 		panic(err)
 	}
+	// v2.2.0: 转发私聊消息事件到ServerBot
+	pushBotEvent("private_message", map[string]any{
+		"msg_id":     msgID,
+		"from_uid":   myUID,
+		"to_uid":     friendID,
+		"content":    content,
+		"msg_type":   msgType,
+		"reply_to":   c.InputInt("reply_to"),
+		"image_urls": "",
+		"timestamp":  time.Now().Unix(),
+	})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID})
 }
 
@@ -202,6 +225,18 @@ func apiMessageSendPatMsg(c *Ctx) {
 		panic(err)
 	}
 	level := refreshGroupMemberLevel(c.app, roomID, uid)
+	// v2.2.0: 转发拍一拍事件到ServerBot
+	pushBotEvent("group_message", map[string]any{
+		"msg_id":     msgID,
+		"room_id":    roomID,
+		"uid":        uid,
+		"nickname":   fromName,
+		"content":    content,
+		"msg_type":   4,
+		"reply_to":   0,
+		"image_urls": "",
+		"timestamp":  time.Now().Unix(),
+	})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID, "content": content, "msg_type": 4, "member_level": level["level"], "member_title": level["title"]})
 }
 
@@ -244,6 +279,18 @@ func apiMessageSendVoiceMsg(c *Ctx) {
 			panic(err)
 		}
 		level := refreshGroupMemberLevel(c.app, roomID, uid)
+		// v2.2.0: 转发群语音消息事件到ServerBot
+		pushBotEvent("group_message", map[string]any{
+			"msg_id":     msgID,
+			"room_id":    roomID,
+			"uid":        uid,
+			"nickname":   nickname,
+			"content":    voiceURL,
+			"msg_type":   3,
+			"reply_to":   0,
+			"image_urls": "",
+			"timestamp":  time.Now().Unix(),
+		})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "语音发送成功", "msg_id": msgID, "url": voiceURL, "member_level": level["level"], "member_title": level["title"]})
 		return
 	}
@@ -307,6 +354,18 @@ func apiMessageSendEmojiMsg(c *Ctx) {
 			return
 		}
 		level := refreshGroupMemberLevel(c.app, roomID, uid)
+		// v2.2.0: 转发群表情包消息事件到ServerBot
+		pushBotEvent("group_message", map[string]any{
+			"msg_id":     msgID,
+			"room_id":    roomID,
+			"uid":        uid,
+			"nickname":   strDefault(getUser(c.app, uid, "nickname"), "nickname", "未知用户"),
+			"content":    abbr,
+			"msg_type":   5,
+			"reply_to":   0,
+			"image_urls": "",
+			"timestamp":  time.Now().Unix(),
+		})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID, "content": abbr, "msg_type": 5, "address": str(emoji, "address"), "member_level": level["level"], "member_title": level["title"]})
 		return
 	}
@@ -462,7 +521,7 @@ func apiMessageGetGroupMsg(c *Ctx) {
 		order = "ASC"
 	}
 	rows, err := c.app.fetchAll(`SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar,
+		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 		gu.title AS member_title, gu.level AS member_level,
 		rply.content AS reply_content, rply.uid AS reply_from_uid, ru.nickname AS reply_nickname
 		FROM chat_msg m
@@ -535,7 +594,7 @@ func apiMessageGetPrivateMsg(c *Ctx) {
 	if afterID > 0 {
 		order = "ASC"
 	}
-	rows, err := c.app.fetchAll(`SELECT pm.*, cu.nickname, cu.avatar, cu.username,
+	rows, err := c.app.fetchAll(`SELECT pm.*, cu.nickname, cu.avatar, cu.username, cu.is_bot,
 		rply.content AS reply_content, rply.from_uid AS reply_from_uid,
 		ru.nickname AS reply_nickname
 		FROM private_msg pm
@@ -698,7 +757,7 @@ func mentionNoticeRows(a *App, uid int64, kind string, limit int64) []map[string
 	var err error
 	if kind == "reply" {
 		rows, err = a.fetchAll(`SELECT m.id, m.room_id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar,
+			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 			r.room_name, gu.title AS member_title, gu.level AS member_level,
 			original.content AS reply_content, original.uid AS reply_from_uid, ou.nickname AS reply_nickname
 			FROM chat_msg m
@@ -714,7 +773,7 @@ func mentionNoticeRows(a *App, uid int64, kind string, limit int64) []map[string
 			LIMIT `+fmt.Sprintf("%d", limit), uid, uid)
 	} else {
 		rows, err = a.fetchAll(`SELECT m.id, m.room_id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar,
+			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 			r.room_name, gu.title AS member_title, gu.level AS member_level,
 			replied.content AS reply_content, replied.uid AS reply_from_uid, ru.nickname AS reply_nickname
 			FROM chat_msg m
@@ -811,7 +870,7 @@ func apiEssenceGet(c *Ctx) {
 		return
 	}
 	rows, err := c.app.fetchAll(`SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.was_replied, u.avatar, gu.title AS member_title, gu.level AS member_level,
+		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.was_replied, u.avatar, u.is_bot, gu.title AS member_title, gu.level AS member_level,
 		e.set_uid, e.set_nick, e.set_time
 		FROM chat_msg m
 		JOIN chat_essence e ON m.id = e.msg_id AND m.room_id = e.room_id

@@ -1,5 +1,5 @@
 // Copyright (c) Chemsource Studio. All rights reserved.
-// Contact: swcsstudio@126.com
+// Backend Version 2.2.0.260614-r1
 
 package main
 
@@ -16,6 +16,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -40,6 +41,15 @@ func apiAuthLogin(c *Ctx) {
 		return
 	}
 	uid := intval(user, "id")
+	// v2.1.1: 检查账号状态
+	if intval(user, "status") == 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已注销，处于冷静期内，可找回"})
+		return
+	}
+	if intval(user, "status") == 3 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已永久注销"})
+		return
+	}
 	if ban := checkUserBan(c.app, uid); ban != nil {
 		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "账号已封禁", "ban_info": ban})
 		return
@@ -251,7 +261,7 @@ func apiAuthRegister(c *Ctx) {
 			return
 		}
 	}
-	newUID, err := c.app.insertRowTx(tx, "chat_user", map[string]any{"username": username, "nickname": nickname, "email": nullableString(email), "pwd": hashPassword(pwd, username), "add_time": time.Now().Unix(), "avatar": c.app.config.DefaultAvatar, "is_first_login": 1, "last_active": time.Now().Unix()})
+	newUID, err := c.app.insertRowTx(tx, "chat_user", map[string]any{"username": username, "nickname": nickname, "email": nullableString(email), "pwd": hashPassword(pwd, username), "add_time": time.Now().Unix(), "avatar": c.app.config.DefaultAvatar, "hide_conv": "", "is_first_login": 1, "last_active": time.Now().Unix()})
 	if err != nil {
 		panic(err)
 	}
@@ -266,7 +276,7 @@ func apiAuthRegister(c *Ctx) {
 		_, _ = c.app.updateRow("chat_user", map[string]any{"avatar": avatar}, "id = ?", newUID)
 	} else {
 		regDate := localDateTime(time.Now().Unix())
-		_, _ = c.app.insertRowTx(tx, "chat_user_notice", map[string]any{"uid": newUID, "title": "欢迎使用 CsAC 在线聊天", "content": fmt.Sprintf("亲爱的%s：\n您好！\n感谢您使用Chemsource AtsukaCIT Chatting。\n\n使用指南：\n1. 登录后可创建群组，或通过群组编号、邀请码加入聊天室；\n2. 支持文字、图片、语音、好友和群组管理；\n3. 请文明交流，遇到问题可联系网站管理员。\n\nCsAC在线聊天网站管理员 admin\n%s", nickname, regDate), "is_read": 0, "add_time": localDateTime(time.Now().Unix())})
+		_, _ = c.app.insertRowTx(tx, "chat_user_notice", map[string]any{"uid": newUID, "title": "欢迎使用 CsAC 在线聊天", "content": fmt.Sprintf("亲爱的%s：\n您好！\n感谢您使用Chemsource AtsukaCIT Chatting。\n\n使用指南：\n1. 登录后可创建群组，或通过群组编号、邀请码加入聊天室；\n2. 支持文字、图片、语音、好友和群组管理；\n3. 请文明交流，遇到问题可联系网站管理员。\n\nCsAC在线聊天网站管理员 %s\n%s", nickname, c.app.config.AdminName, regDate), "is_read": 0, "add_time": localDateTime(time.Now().Unix())})
 		if err := tx.Commit(); err != nil {
 			panic(err)
 		}
@@ -401,11 +411,18 @@ func apiUserGetInfo(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "无效的用户ID"})
 		return
 	}
-	user := getUser(c.app, viewUID, "id, avatar, nickname, username, last_active, allow_auto_join, pat_action, platform")
+	user := getUser(c.app, viewUID, "id, avatar, nickname, username, last_active, allow_auto_join, pat_action, platform, is_bot, status")
 	if user == nil {
 		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
 		return
 	}
+	activeBot := activeBotAccount(c.app, viewUID)
+	botMarked := userHasBotMarker(user) || activeBot
+	if intval(user, "status") != 1 || (botMarked && !activeBot) {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	isBot := activeBot
 	isSelf := viewUID == myUID
 	remark := ""
 	isFriend, sent, received, blocked := false, false, false, false
@@ -443,6 +460,12 @@ func apiUserGetInfo(c *Ctx) {
 			received = true
 			canAdd = false
 		}
+		if isBot && !isFriend {
+			canAdd = true
+			sent = false
+			received = false
+			blocked = false
+		}
 	}
 	platform := "none"
 	if isOnline(user["last_active"]) {
@@ -450,7 +473,7 @@ func apiUserGetInfo(c *Ctx) {
 	}
 	c.JSON(http.StatusOK, map[string]any{"success": true, "user": map[string]any{
 		"uid": viewUID, "username": str(user, "username"), "nickname": str(user, "nickname"), "avatar": avatarOrDefault(c.app, str(user, "avatar")), "last_active": user["last_active"],
-		"online_status": onlineStatus(user["last_active"]), "platform": platform, "allow_auto_join": intval(user, "allow_auto_join"), "pat_action": strDefault(user, "pat_action", "拍了拍"),
+		"online_status": onlineStatus(user["last_active"]), "platform": platform, "allow_auto_join": intval(user, "allow_auto_join"), "pat_action": strDefault(user, "pat_action", "拍了拍"), "is_bot": boolInt(isBot),
 		"is_self": isSelf, "remark": remark, "is_friend": isFriend, "friend_request_sent": sent, "friend_request_received": received, "is_blocked": blocked, "can_add_friend": canAdd,
 	}})
 }
@@ -576,31 +599,10 @@ func apiUserDeleteAccount(c *Ctx) {
 	if !ok {
 		return
 	}
-	rooms, _ := c.app.fetchAll("SELECT id FROM chat_room WHERE owner_uid = ?", uid)
-	tx, err := c.app.db.Begin()
-	if err != nil {
-		panic(err)
-	}
-	defer tx.Rollback()
-	for _, room := range rooms {
-		rid := intval(room, "id")
-		txExec(tx, "DELETE FROM chat_group_user WHERE room_id = ?", rid)
-		txExec(tx, "DELETE FROM chat_group_admin WHERE room_id = ?", rid)
-		txExec(tx, "DELETE FROM chat_msg WHERE room_id = ?", rid)
-		txExec(tx, "DELETE FROM chat_essence WHERE room_id = ?", rid)
-		txExec(tx, "DELETE FROM chat_room_apply WHERE room_id = ?", rid)
-		txExec(tx, "DELETE FROM chat_room WHERE id = ?", rid)
-	}
-	for _, sqlText := range []string{"DELETE FROM chat_group_user WHERE uid = ?", "DELETE FROM chat_group_admin WHERE uid = ?", "DELETE FROM chat_msg WHERE uid = ?", "DELETE FROM chat_essence WHERE set_uid = ?", "DELETE FROM chat_user_notice WHERE uid = ?", "DELETE FROM chat_user WHERE id = ?"} {
-		txExec(tx, sqlText, uid)
-	}
-	txExec(tx, "DELETE FROM friend_request WHERE from_uid = ? OR to_uid = ?", uid, uid)
-	txExec(tx, "DELETE FROM private_msg WHERE from_uid = ? OR to_uid = ?", uid, uid)
-	if err := tx.Commit(); err != nil {
-		panic(err)
-	}
+	// v2.1.1: 不再直接删除，进入14天冷静期
+	_, _ = c.app.updateRow("chat_user", map[string]any{"status": 2, "delete_time": time.Now().Unix()}, "id = ?", uid)
 	c.destroySession()
-	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "账号已注销"})
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "账号已注销，14天冷静期内可找回", "cooling_period_days": 14})
 }
 
 func apiUserGetFriends(c *Ctx) {
@@ -611,7 +613,7 @@ func apiUserGetFriends(c *Ctx) {
 	rows, err := c.app.fetchAll(`SELECT
         CASE WHEN f.uid1 = ? THEN f.uid2 ELSE f.uid1 END AS friend_id,
         CASE WHEN f.uid1 = ? THEN f.remark1 ELSE f.remark2 END AS remark,
-        u.nickname, u.avatar, u.username, u.last_active,
+		 u.nickname, u.avatar, u.username, u.last_active, u.is_bot,
         COALESCE(pm.unread, 0) AS unread_count
         FROM friend_relation f
         JOIN chat_user u ON ((f.uid1 = ? AND f.uid2 = u.id) OR (f.uid2 = ? AND f.uid1 = u.id))
@@ -633,7 +635,7 @@ func apiUserGetFriends(c *Ctx) {
 		if remark != "" {
 			display = remark
 		}
-		friends = append(friends, map[string]any{"friend_id": intval(row, "friend_id"), "nickname": str(row, "nickname"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "username": str(row, "username"), "last_active": row["last_active"], "online_status": onlineStatus(row["last_active"]), "remark": remark, "display_name": display, "unread_count": intval(row, "unread_count")})
+		friends = append(friends, map[string]any{"friend_id": intval(row, "friend_id"), "nickname": str(row, "nickname"), "avatar": avatarOrDefault(c.app, str(row, "avatar")), "username": str(row, "username"), "last_active": row["last_active"], "online_status": onlineStatus(row["last_active"]), "is_bot": intval(row, "is_bot"), "remark": remark, "display_name": display, "unread_count": intval(row, "unread_count")})
 	}
 	c.JSON(http.StatusOK, map[string]any{"success": true, "friends": friends})
 }
@@ -688,7 +690,7 @@ func apiUserGetNotifications(c *Ctx) {
 	}
 	system, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM chat_user_notice WHERE uid = ? AND is_read = 0", uid)
 	requests, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM friend_request WHERE to_uid = ? AND status = 0", uid)
-	deleted, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM friend_relation WHERE (uid1 = ? OR uid2 = ?) AND status = 2 AND delete_time > DATE_SUB(NOW(), INTERVAL 3 DAY)", uid, uid)
+	deleted, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM friend_relation WHERE (uid1 = ? OR uid2 = ?) AND status = 2 AND COALESCE(notice_read, 0) = 0 AND delete_time > DATE_SUB(NOW(), INTERVAL 3 DAY)", uid, uid)
 	total := intval(system, "c") + intval(requests, "c") + intval(deleted, "c")
 	c.JSON(http.StatusOK, map[string]any{"success": true, "system_notice_unread": intval(system, "c"), "friend_request_unread": intval(requests, "c"), "deleted_friend_notices": intval(deleted, "c"), "total_unread": total})
 }
@@ -784,4 +786,464 @@ func hasMultipartFile(c *Ctx, field string) bool {
 	}
 	files := c.r.MultipartForm.File[field]
 	return len(files) > 0 && files[0] != nil && files[0].Size >= 0
+}
+
+func apiUserGetHideConvList(c *Ctx) {
+	myUID, ok := requireLogin(c)
+	if !ok {
+		return
+	}
+	user := getUser(c.app, myUID, "hide_conv")
+	if user == nil {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	hideConv := str(user, "hide_conv")
+	var list []string
+	if hideConv != "" {
+		for _, id := range strings.Split(hideConv, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				list = append(list, id)
+			}
+		}
+	}
+	if list == nil {
+		list = []string{}
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true, "hide_conv_list": list})
+}
+
+func apiUserToggleHideConv(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	myUID, ok := requireLogin(c)
+	if !ok {
+		return
+	}
+	roomID := strings.TrimSpace(c.InputString("room_id"))
+	if roomID == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "缺少 room_id 参数"})
+		return
+	}
+	user := getUser(c.app, myUID, "hide_conv")
+	if user == nil {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	hideConv := str(user, "hide_conv")
+	hidden := map[string]bool{}
+	if hideConv != "" {
+		for _, id := range strings.Split(hideConv, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				hidden[id] = true
+			}
+		}
+	}
+	isHidden := hidden[roomID]
+	if isHidden {
+		delete(hidden, roomID)
+	} else {
+		hidden[roomID] = true
+	}
+	var list []string
+	for id := range hidden {
+		list = append(list, id)
+	}
+	sort.Strings(list)
+	newVal := strings.Join(list, ",")
+	_, _ = c.app.updateRow("chat_user", map[string]any{"hide_conv": newVal}, "id = ?", myUID)
+	action := "已隐藏"
+	if isHidden {
+		action = "已取消隐藏"
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": action, "is_hidden": !isHidden, "hide_conv_list": list})
+}
+
+// ========== v2.1.1: 邮箱登录 ==========
+
+func apiAuthLoginByEmail(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	email := normalizeRegisterEmail(c.InputString("email"))
+	pwd := c.InputString("pwd")
+	platform := normalizePlatform(c.InputString("platform"))
+	if email == "" || pwd == "" || platform == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写邮箱、密码和客户端标识"})
+		return
+	}
+	user, err := c.app.fetchOne("SELECT * FROM chat_user WHERE email = ?", email)
+	if err != nil || user == nil || !isPasswordValid(user, pwd) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "邮箱或密码错误"})
+		return
+	}
+	uid := intval(user, "id")
+	// 检查账号状态
+	if intval(user, "status") == 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已注销，处于冷静期内，可找回"})
+		return
+	}
+	if intval(user, "status") == 3 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已永久注销"})
+		return
+	}
+	if ban := checkUserBan(c.app, uid); ban != nil {
+		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "账号已封禁", "ban_info": ban})
+		return
+	}
+	if c.session != nil && c.session.SID != "" {
+		_, _ = c.app.exec("DELETE FROM csac_sessions WHERE sid = ?", c.session.SID)
+	}
+	c.session = &Session{SID: randomSessionID(), UID: uid, Nickname: str(user, "nickname"), Platform: platform, ExpiresAt: time.Now().Unix() + c.app.config.SessionLifetimeSeconds, dirty: true}
+	updateUserPlatform(c.app, uid, platform)
+	touchUser(c, uid)
+	needGuide := intval(user, "is_first_login") == 1
+	if needGuide {
+		_, _ = c.app.updateRow("chat_user", map[string]any{"is_first_login": 0}, "id = ?", uid)
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"success": true, "message": "登录成功", "need_guide": needGuide, "platform": platform,
+		"user": map[string]any{"uid": uid, "nickname": str(user, "nickname"), "platform": platform},
+	})
+}
+
+func apiAuthSendLoginCode(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	email := normalizeRegisterEmail(c.InputString("email"))
+	if email == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请输入有效的邮箱地址"})
+		return
+	}
+	// 检查邮箱是否已注册
+	user, _ := c.app.fetchOne("SELECT id, status FROM chat_user WHERE email = ?", email)
+	if user == nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱未注册"})
+		return
+	}
+	if intval(user, "status") == 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已注销，处于冷静期内，可找回"})
+		return
+	}
+	if intval(user, "status") == 3 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已永久注销"})
+		return
+	}
+	// 复用注册验证码表，但用不同的 ip_hash 前缀区分
+	sendLoginCodeCommon(c, email)
+}
+
+func sendLoginCodeCommon(c *Ctx, email string) {
+	now := time.Now().Unix()
+	ipHash := "login_" + registerEmailIPHash(c)
+	cooldownSince := now - registerEmailResendSeconds
+	recentEmail, _ := c.app.fetchOne("SELECT id FROM register_email_codes WHERE email = ? AND created_at > ? AND ip_hash LIKE 'login_%' LIMIT 1", email, cooldownSince)
+	recentIP, _ := c.app.fetchOne("SELECT id FROM register_email_codes WHERE ip_hash = ? AND created_at > ? LIMIT 1", ipHash, cooldownSince)
+	if recentEmail != nil || recentIP != nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码发送过于频繁，请稍后再试"})
+		return
+	}
+	hourSince := now - 3600
+	emailCount, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM register_email_codes WHERE email = ? AND created_at > ? AND ip_hash LIKE 'login_%'", email, hourSince)
+	ipCount, _ := c.app.fetchOne("SELECT COUNT(*) AS c FROM register_email_codes WHERE ip_hash = ? AND created_at > ?", ipHash, hourSince)
+	if intval(emailCount, "c") >= registerEmailMaxSendsPerHour || intval(ipCount, "c") >= registerEmailMaxSendsPerHour {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码发送次数过多，请稍后再试"})
+		return
+	}
+	code := fmt.Sprintf("%06d", rand.New(rand.NewSource(time.Now().UnixNano())).Intn(900000)+100000)
+	hash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	codeID, err := c.app.insertRow("register_email_codes", map[string]any{"email": email, "code_hash": string(hash), "ip_hash": ipHash, "attempts": 0, "used_at": 0, "expires_at": now + registerEmailCodeTTL, "created_at": now})
+	if err != nil {
+		panic(err)
+	}
+	if err := sendLoginEmailCode(c.app, email, code); err != nil {
+		log.Printf("send login email code to %s failed: %v", email, err)
+		_, _ = c.app.exec("DELETE FROM register_email_codes WHERE id = ?", codeID)
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "验证码邮件发送失败，请稍后再试"})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "验证码已发送，请查收邮箱", "expires_in": registerEmailCodeTTL, "resend_after": registerEmailResendSeconds})
+}
+
+func sendLoginEmailCode(a *App, email, code string) error {
+	host := getenv("CSAC_SMTP_HOST", "")
+	username := getenv("CSAC_SMTP_USERNAME", "")
+	password := getenv("CSAC_SMTP_PASSWORD", "")
+	fromEmail := getenv("CSAC_SMTP_FROM_EMAIL", "")
+	if host == "" || username == "" || password == "" || fromEmail == "" {
+		return fmt.Errorf("smtp config is incomplete")
+	}
+	port := getenv("CSAC_SMTP_PORT", "465")
+	secure := strings.ToLower(getenv("CSAC_SMTP_SECURE", "ssl"))
+	fromName := getenv("CSAC_SMTP_FROM_NAME", "CsAC")
+	addr := net.JoinHostPort(host, port)
+	subject := "CsAC 登录验证码"
+	minutes := (registerEmailCodeTTL + 59) / 60
+	body := fmt.Sprintf("你的 CsAC 登录验证码是：%s\n\n验证码 %d 分钟内有效，请勿转发给他人。\n如果不是你本人操作，请忽略这封邮件。", code, minutes)
+	msg := []byte(fmt.Sprintf("From: %s <%s>\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s", fromName, fromEmail, email, subject, body))
+	auth := smtp.PlainAuth("", username, password, host)
+	if secure == "ssl" || secure == "smtps" {
+		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if err != nil {
+			return err
+		}
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+		if err := client.Mail(fromEmail); err != nil {
+			return err
+		}
+		if err := client.Rcpt(email); err != nil {
+			return err
+		}
+		w, err := client.Data()
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(msg); err != nil {
+			return err
+		}
+		if err := w.Close(); err != nil {
+			return err
+		}
+		return client.Quit()
+	}
+	return smtp.SendMail(addr, auth, fromEmail, []string{email}, msg)
+}
+
+func apiAuthLoginByCode(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	email := normalizeRegisterEmail(c.InputString("email"))
+	code := c.InputString("email_code")
+	platform := normalizePlatform(c.InputString("platform"))
+	if email == "" || code == "" || platform == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写邮箱、验证码和客户端标识"})
+		return
+	}
+	// 验证验证码
+	codeID, ok := verifiedLoginEmailCodeID(c, email, code)
+	if !ok {
+		return
+	}
+	user, _ := c.app.fetchOne("SELECT * FROM chat_user WHERE email = ?", email)
+	if user == nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱未注册"})
+		return
+	}
+	uid := intval(user, "id")
+	if intval(user, "status") == 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已注销，处于冷静期内，可找回"})
+		return
+	}
+	if intval(user, "status") == 3 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号已永久注销"})
+		return
+	}
+	if ban := checkUserBan(c.app, uid); ban != nil {
+		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "账号已封禁", "ban_info": ban})
+		return
+	}
+	// 标记验证码已使用
+	_, _ = c.app.exec("UPDATE register_email_codes SET used_at = ? WHERE id = ? AND used_at = 0", time.Now().Unix(), codeID)
+	if c.session != nil && c.session.SID != "" {
+		_, _ = c.app.exec("DELETE FROM csac_sessions WHERE sid = ?", c.session.SID)
+	}
+	c.session = &Session{SID: randomSessionID(), UID: uid, Nickname: str(user, "nickname"), Platform: platform, ExpiresAt: time.Now().Unix() + c.app.config.SessionLifetimeSeconds, dirty: true}
+	updateUserPlatform(c.app, uid, platform)
+	touchUser(c, uid)
+	needGuide := intval(user, "is_first_login") == 1
+	if needGuide {
+		_, _ = c.app.updateRow("chat_user", map[string]any{"is_first_login": 0}, "id = ?", uid)
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"success": true, "message": "登录成功", "need_guide": needGuide, "platform": platform,
+		"user": map[string]any{"uid": uid, "nickname": str(user, "nickname"), "platform": platform},
+	})
+}
+
+func verifiedLoginEmailCodeID(c *Ctx, email, code string) (int64, bool) {
+	if email == "" || !regexp.MustCompile(`^\d{6}$`).MatchString(code) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "邮箱验证码错误"})
+		return 0, false
+	}
+	row, _ := c.app.fetchOne("SELECT * FROM register_email_codes WHERE email = ? AND used_at = 0 AND ip_hash LIKE 'login_%' ORDER BY id DESC LIMIT 1", email)
+	if row == nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请先获取登录验证码"})
+		return 0, false
+	}
+	if intval(row, "expires_at") < time.Now().Unix() {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码已过期，请重新获取"})
+		return 0, false
+	}
+	if intval(row, "attempts") >= registerEmailMaxAttempts {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码错误次数过多，请重新获取"})
+		return 0, false
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(str(row, "code_hash")), []byte(code)); err != nil {
+		_, _ = c.app.exec("UPDATE register_email_codes SET attempts = attempts + 1 WHERE id = ?", intval(row, "id"))
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "邮箱验证码错误"})
+		return 0, false
+	}
+	return intval(row, "id"), true
+}
+
+// ========== v2.1.1: 账号找回 ==========
+
+func apiAuthRequestRestore(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	email := normalizeRegisterEmail(c.InputString("email"))
+	if email == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请输入有效的邮箱地址"})
+		return
+	}
+	user, _ := c.app.fetchOne("SELECT id, status FROM chat_user WHERE email = ?", email)
+	if user == nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱未注册"})
+		return
+	}
+	uid := intval(user, "id")
+	if intval(user, "status") != 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号不在冷静期内，无需找回"})
+		return
+	}
+	// 生成找回 token
+	token := randomSessionID()            // 复用 session ID 生成逻辑作为 token
+	expiresAt := time.Now().Unix() + 3600 // 1小时有效
+	_, _ = c.app.updateRow("chat_user", map[string]any{"restore_token": token, "restore_token_expires": expiresAt}, "id = ?", uid)
+	// 发送找回邮件
+	if err := sendRestoreEmail(c.app, email, token); err != nil {
+		log.Printf("send restore email to %s failed: %v", email, err)
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "找回邮件发送失败，请稍后再试"})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "找回邮件已发送，请查收邮箱"})
+}
+
+func sendRestoreEmail(a *App, email, token string) error {
+	host := getenv("CSAC_SMTP_HOST", "")
+	username := getenv("CSAC_SMTP_USERNAME", "")
+	password := getenv("CSAC_SMTP_PASSWORD", "")
+	fromEmail := getenv("CSAC_SMTP_FROM_EMAIL", "")
+	if host == "" || username == "" || password == "" || fromEmail == "" {
+		return fmt.Errorf("smtp config is incomplete")
+	}
+	port := getenv("CSAC_SMTP_PORT", "465")
+	secure := strings.ToLower(getenv("CSAC_SMTP_SECURE", "ssl"))
+	fromName := getenv("CSAC_SMTP_FROM_NAME", "CsAC")
+	addr := net.JoinHostPort(host, port)
+	subject := "CsAC 账号找回"
+	body := fmt.Sprintf("你正在找回你的 CsAC 账号。\n\n找回验证码：%s\n\n该验证码1小时内有效。如果不是你本人操作，请忽略这封邮件。", token)
+	msg := []byte(fmt.Sprintf("From: %s <%s>\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s", fromName, fromEmail, email, subject, body))
+	auth := smtp.PlainAuth("", username, password, host)
+	if secure == "ssl" || secure == "smtps" {
+		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if err != nil {
+			return err
+		}
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+		if err := client.Mail(fromEmail); err != nil {
+			return err
+		}
+		if err := client.Rcpt(email); err != nil {
+			return err
+		}
+		w, err := client.Data()
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(msg); err != nil {
+			return err
+		}
+		if err := w.Close(); err != nil {
+			return err
+		}
+		return client.Quit()
+	}
+	return smtp.SendMail(addr, auth, fromEmail, []string{email}, msg)
+}
+
+func apiAuthRestoreAccount(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	email := normalizeRegisterEmail(c.InputString("email"))
+	token := c.InputString("restore_token")
+	if email == "" || token == "" {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写邮箱和找回验证码"})
+		return
+	}
+	user, _ := c.app.fetchOne("SELECT id, status, restore_token, restore_token_expires FROM chat_user WHERE email = ?", email)
+	if user == nil {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱未注册"})
+		return
+	}
+	if intval(user, "status") != 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号不在冷静期内"})
+		return
+	}
+	if str(user, "restore_token") != token {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "找回验证码错误"})
+		return
+	}
+	if intval(user, "restore_token_expires") < time.Now().Unix() {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "找回验证码已过期，请重新申请"})
+		return
+	}
+	uid := intval(user, "id")
+	_, _ = c.app.updateRow("chat_user", map[string]any{"status": 1, "delete_time": 0, "restore_token": "", "restore_token_expires": 0}, "id = ?", uid)
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "账号已恢复，请重新登录"})
+}
+
+// apiAdminRestoreAccount 管理员手动恢复账号
+func apiAdminRestoreAccount(c *Ctx) {
+	if !c.RequireMethod(http.MethodPost) {
+		return
+	}
+	adminUID, ok := requireLogin(c)
+	if !ok {
+		return
+	}
+	if adminUID != c.app.config.AdminUID {
+		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "无权限"})
+		return
+	}
+	uid := c.InputInt("uid")
+	if uid <= 0 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "无效的用户ID"})
+		return
+	}
+	user, _ := c.app.fetchOne("SELECT id, status FROM chat_user WHERE id = ?", uid)
+	if user == nil {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	if intval(user, "status") != 2 {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该账号不在冷静期内"})
+		return
+	}
+	_, _ = c.app.updateRow("chat_user", map[string]any{"status": 1, "delete_time": 0, "restore_token": "", "restore_token_expires": 0}, "id = ?", uid)
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "账号已恢复"})
 }

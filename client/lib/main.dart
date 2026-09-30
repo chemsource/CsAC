@@ -1,0 +1,107 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:app_links/app_links.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:highlight/highlight_core.dart' as highlight_core;
+import 'package:highlight/languages/bash.dart' as highlight_bash;
+import 'package:highlight/languages/cpp.dart' as highlight_cpp;
+import 'package:highlight/languages/cs.dart' as highlight_cs;
+import 'package:highlight/languages/css.dart' as highlight_css;
+import 'package:highlight/languages/dart.dart' as highlight_dart;
+import 'package:highlight/languages/go.dart' as highlight_go;
+import 'package:highlight/languages/java.dart' as highlight_java;
+import 'package:highlight/languages/javascript.dart' as highlight_javascript;
+import 'package:highlight/languages/json.dart' as highlight_json;
+import 'package:highlight/languages/kotlin.dart' as highlight_kotlin;
+import 'package:highlight/languages/lua.dart' as highlight_lua;
+import 'package:highlight/languages/markdown.dart' as highlight_markdown;
+import 'package:highlight/languages/php.dart' as highlight_php;
+import 'package:highlight/languages/plaintext.dart' as highlight_plaintext;
+import 'package:highlight/languages/powershell.dart' as highlight_powershell;
+import 'package:highlight/languages/python.dart' as highlight_python;
+import 'package:highlight/languages/ruby.dart' as highlight_ruby;
+import 'package:highlight/languages/rust.dart' as highlight_rust;
+import 'package:highlight/languages/shell.dart' as highlight_shell;
+import 'package:highlight/languages/sql.dart' as highlight_sql;
+import 'package:highlight/languages/swift.dart' as highlight_swift;
+import 'package:highlight/languages/typescript.dart' as highlight_typescript;
+import 'package:highlight/languages/xml.dart' as highlight_xml;
+import 'package:highlight/languages/yaml.dart' as highlight_yaml;
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:record/record.dart';
+import 'package:re_editor/re_editor.dart';
+import 'package:re_highlight/languages/javascript.dart' as re_highlight_js;
+import 'package:re_highlight/styles/github.dart' as re_highlight_github;
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_all/webview_all.dart' as webview_all;
+
+import 'src/app_state.dart';
+import 'src/acop_client.dart';
+import 'src/api_client.dart';
+import 'src/api_protocol.dart';
+import 'src/deep_links.dart';
+import 'src/emapps_client.dart';
+import 'src/emapps_runtime.dart';
+import 'src/l10n.dart';
+import 'src/models.dart';
+import 'src/notification_service.dart';
+import 'src/platform/desktop_window_chrome.dart';
+import 'src/platform/chat_export_writer.dart';
+import 'src/platform/platform_support.dart';
+import 'src/platform/windows_tray.dart';
+import 'src/preferences.dart';
+import 'src/update_checker.dart';
+import 'src/ui/acop_lib_manager.dart';
+import 'src/ui/acop_visual_script_builder.dart';
+import 'src/ui/emapps_web_frame.dart'
+    if (dart.library.io) 'src/ui/emapps_frame_stub.dart';
+
+part 'src/ui/app_shell.dart';
+part 'src/ui/acop_platform.dart';
+part 'src/ui/acop_block_editor.dart';
+part 'src/ui/home.dart';
+part 'src/ui/discovery.dart';
+part 'src/ui/emapps.dart';
+part 'src/ui/notifications.dart';
+part 'src/ui/profile_settings.dart';
+part 'src/ui/qr_tools.dart';
+part 'src/ui/common_widgets.dart';
+part 'src/ui/command_palette.dart';
+part 'src/ui/app_lock.dart';
+part 'src/ui/user_profile.dart';
+part 'src/ui/conversation_detail.dart';
+part 'src/ui/chat.dart';
+part 'src/ui/chat_export.dart';
+part 'src/ui/media.dart';
+part 'src/ui/conversation_media.dart';
+part 'src/ui/helpers.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final initialPreferences = await CsacPreferences.load();
+  await preloadCsacStrings(initialPreferences.language);
+  configureInsecureHttpsOverrides();
+  await configureDesktopWindowChrome(
+    forceMobileWidth: initialPreferences.forceDesktopMobileWidth,
+  );
+  await configureWindowsTray();
+  runApp(CsacMobileApp(initialPreferences: initialPreferences));
+}

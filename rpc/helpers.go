@@ -1,5 +1,5 @@
 // Copyright (c) Chemsource Studio. All rights reserved.
-// Contact: swcsstudio@126.com
+// Backend Version 2.2.0.260614-r1
 
 package main
 
@@ -451,6 +451,19 @@ func friendRelation(app *App, a, b int64) Row {
 	return row
 }
 
+func userIsBot(app *App, uid int64, user Row) bool {
+	return activeBotAccount(app, uid)
+}
+
+func userHasBotMarker(user Row) bool {
+	return intval(user, "is_bot") == 1 || strings.EqualFold(str(user, "platform"), "bot")
+}
+
+func activeBotAccount(app *App, uid int64) bool {
+	row, err := app.fetchOne("SELECT id FROM bot_accounts WHERE uid = ? AND status = 1 LIMIT 1", uid)
+	return err == nil && row != nil
+}
+
 func requireFriend(c *Ctx, myUID, friendID int64) (Row, bool) {
 	rel := friendRelation(c.app, myUID, friendID)
 	if rel == nil || intval(rel, "status") != 1 {
@@ -631,7 +644,7 @@ func normalizeMessageRow(a *App, row Row, myUID int64, extra map[string]any) map
 	}
 	normalized := map[string]any{
 		"id": intval(row, "id"), "uid": nullableInt(row, "uid"), "from_uid": nullableInt(row, "from_uid"), "to_uid": nullableInt(row, "to_uid"),
-		"nickname": str(row, "nickname"), "username": str(row, "username"), "content": content, "msg_type": msgType,
+		"nickname": str(row, "nickname"), "username": str(row, "username"), "is_bot": intval(row, "is_bot"), "content": content, "msg_type": msgType,
 		"image_url": imageURL, "voice_url": voiceURL, "duration": intval(row, "duration"), "voice_duration": intval(row, "voice_duration"),
 		"add_time": isoTime, "created_at": createdAt, "avatar": avatarOrDefault(a, str(row, "avatar")), "member_title": memberTitle, "member_level": memberLevel,
 		"is_recalled": intval(row, "is_recalled"), "was_replied": recallStatus, "recall_status": recallStatus, "is_read": intval(row, "is_read"),
