@@ -1,0 +1,10 @@
+Match User csac-deploy
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+    AuthenticationMethods publickey
+    AuthorizedKeysFile /var/lib/csac-deploy/.ssh/authorized_keys
+    ForceCommand /usr/bin/sudo -n /usr/local/sbin/csac-ci-receive
+    DisableForwarding yes
+    PermitTTY no
+    PermitUserRC no
+Match all

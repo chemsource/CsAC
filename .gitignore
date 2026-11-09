@@ -1,0 +1,11 @@
+.local/
+.env
+.env.*
+!.env.example
+bin/
+secrets/
+__pycache__/
+*.pyc
+**/*_test.go
+docs/superpowers/
+*.log

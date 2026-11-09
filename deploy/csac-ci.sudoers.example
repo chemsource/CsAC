@@ -1,0 +1,2 @@
+Defaults:csac-deploy env_keep += "SSH_ORIGINAL_COMMAND"
+csac-deploy ALL=(root) NOPASSWD: /usr/local/sbin/csac-ci-receive ""

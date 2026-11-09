@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew CsAC main-domain certificate
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/csac/deploy/renew-certificate.sh

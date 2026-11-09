@@ -1,0 +1,10 @@
+.git
+.local
+**/.env
+**/.env.*
+**/*_test.go
+client
+jsacratch
+acop-flutter
+bin
+secrets

@@ -1,0 +1,85 @@
+name: Backend CI and deployment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: csac-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-build-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE_TAG: ${{ github.sha }}-${{ github.run_number }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check and build Go services
+        run: |
+          go test -race ./...
+          go vet ./...
+          go build ./rpc ./acop ./ServerBot ./emapps
+          git diff --check
+          python3 -m py_compile deploy/ci_receive.py
+
+      - name: Build production image
+        run: >-
+          docker build --platform linux/amd64
+          --label "org.opencontainers.image.revision=$GITHUB_SHA"
+          --tag "csac-backend:$IMAGE_TAG" .
+
+      - name: Deploy verified image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          CSAC_DEPLOY_HOST: ${{ secrets.CSAC_DEPLOY_HOST }}
+          CSAC_DEPLOY_PORT: ${{ secrets.CSAC_DEPLOY_PORT }}
+          CSAC_DEPLOY_USER: ${{ secrets.CSAC_DEPLOY_USER }}
+          CSAC_DEPLOY_KEY: ${{ secrets.CSAC_DEPLOY_KEY }}
+          CSAC_KNOWN_HOSTS: ${{ secrets.CSAC_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CSAC_DEPLOY_HOST:?Missing deployment host}"
+          : "${CSAC_DEPLOY_PORT:?Missing SSH port}"
+          : "${CSAC_DEPLOY_USER:?Missing deployment user}"
+          : "${CSAC_DEPLOY_KEY:?Missing deployment key}"
+          : "${CSAC_KNOWN_HOSTS:?Missing verified host identity}"
+          directory="$RUNNER_TEMP/csac-deploy"
+          install -d -m 0700 "$directory"
+          trap 'rm -rf "$directory"' EXIT
+          printf '%s\n' "$CSAC_DEPLOY_KEY" > "$directory/key"
+          printf '%s\n' "$CSAC_KNOWN_HOSTS" > "$directory/known_hosts"
+          chmod 0600 "$directory/key" "$directory/known_hosts"
+          unset CSAC_DEPLOY_KEY CSAC_KNOWN_HOSTS
+          docker image save "csac-backend:$IMAGE_TAG" | gzip -1 > "$directory/image.tar.gz"
+          digest=$(sha256sum "$directory/image.tar.gz")
+          digest=${digest%% *}
+          ssh -p "$CSAC_DEPLOY_PORT" -i "$directory/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$directory/known_hosts" -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=8 \
+            "$CSAC_DEPLOY_USER@$CSAC_DEPLOY_HOST" \
+            "deploy $GITHUB_SHA $GITHUB_RUN_NUMBER $GITHUB_RUN_ATTEMPT $digest" \
+            < "$directory/image.tar.gz"
+          curl --fail --retry 5 --retry-all-errors --retry-delay 2 \
+            --max-time 15 --user-agent 'CsAC-CI/1.0' \
+            --connect-to "csac.chat:443:$CSAC_DEPLOY_HOST:443" \
+            https://csac.chat/healthz

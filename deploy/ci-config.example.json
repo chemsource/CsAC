@@ -1,0 +1,10 @@
+{
+  "repo_dir": "/opt/csac",
+  "releases_dir": "/opt/csac/releases",
+  "backup_dir": "/opt/csac/backups",
+  "project": "csac",
+  "health_url": "http://127.0.0.1:18081/healthz",
+  "lock_file": "/run/lock/csac-deploy.lock",
+  "max_image_bytes": 268435456,
+  "wait_seconds": 120
+}

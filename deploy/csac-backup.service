@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up CsAC database
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/csac/deploy/backup.sh

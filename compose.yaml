@@ -1,0 +1,186 @@
+name: csac
+
+x-app: &app
+  image: csac-backend:${CSAC_RELEASE:-local}
+  build: .
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  networks: [database, services]
+  depends_on:
+    db:
+      condition: service_healthy
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: '3'
+  stop_grace_period: 20s
+
+services:
+  db:
+    image: mariadb:11.8@sha256:c4124d1afa875e47f2892edf26b482fa54f796e2f342d3717a04ca091a22a9bd
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: csac
+      MARIADB_USER: csac
+      MARIADB_PASSWORD: ${CSAC_DB_PASSWORD:?Set CSAC_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      MARIADB_ROOT_HOST: localhost
+      TZ: Asia/Shanghai
+    secrets: [db_root_password]
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=180
+      - --max-allowed-packet=32M
+      - --performance-schema=OFF
+    volumes:
+      - database:/var/lib/mysql
+      - ./database_template.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    networks: [database]
+    mem_limit: 640m
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: '3'}
+
+  rpc:
+    <<: *app
+    command: [/app/rpc]
+    environment:
+      CSAC_HTTP_ADDR: :8080
+      CSAC_DB_HOST: db:3306
+      CSAC_DB_NAME: csac
+      CSAC_DB_USER: csac
+      CSAC_DB_PASS: ${CSAC_DB_PASSWORD}
+      CSAC_CACHE_SALT: ${CSAC_CACHE_SALT:?Set CSAC_CACHE_SALT}
+      CSAC_REQUIRE_REGISTER_EMAIL_VERIFICATION: ${CSAC_REQUIRE_EMAIL_VERIFICATION:-true}
+      CSAC_REQUIRE_EXISTING_USER_EMAIL_VERIFICATION: ${CSAC_REQUIRE_EMAIL_VERIFICATION:-true}
+      CSAC_UPLOAD_DIR: /data/upload
+      CSAC_PRIVATE_UPLOAD_DIR: /data/uploads/chat
+      CSAC_WEB_DIR: /data/web
+      CSAC_UPDATE_DIR: /data/update
+      CSAC_AUTO_UPDATE: 'false'
+      CSAC_BOT_ENDPOINT: http://serverbot:8081/bot/internal/event
+      CSAC_BOT_SECRET: ${CSAC_BOT_SECRET:?Set CSAC_BOT_SECRET}
+      CSAC_SESSION_COOKIE_NAME: PHPSESSID
+      CSAC_WS_ORIGINS: ${CSAC_WS_ORIGINS:-https://csac.chat}
+      CSAC_WS_RETENTION_DAYS: ${CSAC_WS_RETENTION_DAYS:-7}
+      CSAC_WS_MAX_CONNECTIONS: ${CSAC_WS_MAX_CONNECTIONS:-256}
+      CSAC_ADMIN_UID: ${CSAC_ADMIN_UID:-1}
+      CSAC_ADMIN_NAME: Chemsource
+      CSAC_SMTP_HOST: ${CSAC_SMTP_HOST:-}
+      CSAC_SMTP_PORT: ${CSAC_SMTP_PORT:-465}
+      CSAC_SMTP_SECURE: ${CSAC_SMTP_SECURE:-ssl}
+      CSAC_SMTP_USERNAME: ${CSAC_SMTP_USERNAME:-}
+      CSAC_SMTP_PASSWORD: ${CSAC_SMTP_PASSWORD:-}
+      CSAC_SMTP_FROM_EMAIL: ${CSAC_SMTP_FROM_EMAIL:-}
+      GOMEMLIMIT: 320MiB
+    volumes:
+      - ${CSAC_DATA_ROOT:-/opt/1panel/www/sites/csac/data}:/data
+    ports: ['127.0.0.1:${CSAC_RPC_PORT:-18081}:8080']
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  serverbot:
+    <<: *app
+    command: [/app/serverbot]
+    environment:
+      SB_HTTP_ADDR: :8081
+      SB_DB_HOST: db:3306
+      SB_DB_NAME: csac
+      SB_DB_USER: csac
+      SB_DB_PASS: ${CSAC_DB_PASSWORD}
+      SB_SECRET: ${CSAC_BOT_SECRET}
+      SB_ALLOW_TPARTY_LIB: 'false'
+      GOMEMLIMIT: 320MiB
+    volumes:
+      - bot_libraries:/app/lib
+    ports: ['127.0.0.1:${CSAC_BOT_PORT:-18082}:8081']
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8081/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  acop:
+    <<: *app
+    command: [/app/acop]
+    environment:
+      ACOP_HTTP_ADDR: :8082
+      ACOP_DB_HOST: db:3306
+      ACOP_DB_NAME: csac
+      ACOP_DB_USER: csac
+      ACOP_DB_PASS: ${CSAC_DB_PASSWORD}
+      ACOP_SECRET: ${CSAC_ACOP_SECRET:?Set CSAC_ACOP_SECRET}
+      ACOP_ADMIN_UID: ${CSAC_ADMIN_UID:-1}
+      ACOP_CSAC_ENDPOINT: http://rpc:8080/rpc/UniCsAC.php
+      ACOP_BOTAPI_URL: http://serverbot:8081
+      ACOP_BOT_SECRET: ${CSAC_BOT_SECRET}
+      CSAC_BOT_SECRET: ${CSAC_BOT_SECRET}
+      ACOP_UPLOAD_DIR: /data/upload
+      EMAPPS_URL: http://emapps:8090
+      GOMEMLIMIT: 192MiB
+    volumes:
+      - ${CSAC_DATA_ROOT:-/opt/1panel/www/sites/csac/data}/upload:/data/upload
+    ports: ['127.0.0.1:${CSAC_ACOP_PORT:-18083}:8082']
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8082/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  emapps:
+    <<: *app
+    command: [/app/emapps]
+    environment:
+      EMAPPS_HTTP_ADDR: :8090
+      EMAPPS_DB_HOST: db:3306
+      EMAPPS_DB_NAME: csac
+      EMAPPS_DB_USER: csac
+      EMAPPS_DB_PASS: ${CSAC_DB_PASSWORD}
+      EMAPPS_PKG_DIR: /data/packages
+      EMAPPS_CORS_ORIGIN: https://csac.chat
+      CSAC_BOT_SECRET: ${CSAC_BOT_SECRET}
+      GOMEMLIMIT: 96MiB
+    volumes:
+      - emapps:/data
+    ports: ['127.0.0.1:${CSAC_EMAPPS_PORT:-18084}:8090']
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8090/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+networks:
+  database:
+    internal: true
+  services:
+
+volumes:
+  database:
+  bot_libraries:
+  emapps:
+
+secrets:
+  db_root_password:
+    file: ${CSAC_ROOT_PASSWORD_FILE:-./secrets/mysql-root-password}
