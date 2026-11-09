@@ -64,6 +64,9 @@ type Config struct {
 	FileAllowedTypes string // 允许的文件扩展名，逗号分隔
 	FileMaxBytes     int64  // 文件最大字节数
 	FileExpireDays   int    // 文件过期天数
+	WSOrigins        string
+	WSRetentionDays  int
+	WSMaxConnections int
 }
 
 type HandlerFunc func(*Ctx)
@@ -74,6 +77,8 @@ type App struct {
 	routes        map[string]HandlerFunc
 	columnCache   map[string]map[string]bool
 	columnCacheMu chan struct{}
+	realtime      *realtimeService
+	wsMethods     map[string]wsMethod
 }
 
 func main() {
@@ -81,6 +86,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("startup failed: %v", err)
 	}
+	defer app.Close()
 
 	server := &http.Server{
 		Addr:              app.config.HTTPAddr,
@@ -94,6 +100,12 @@ func main() {
 }
 
 func NewApp(cfg Config) (*App, error) {
+	if cfg.WSRetentionDays < 1 {
+		cfg.WSRetentionDays = 7
+	}
+	if cfg.WSMaxConnections < 1 {
+		cfg.WSMaxConnections = 256
+	}
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=false&loc=UTC", cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -114,10 +126,15 @@ func NewApp(cfg Config) (*App, error) {
 	}
 	app.columnCacheMu <- struct{}{}
 	app.routes = app.buildRoutes()
+	app.wsMethods = app.wsMethodCatalog()
 	app.ensureSchema()
 	if err := passwords.EnsureSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("prepare password storage: %w", err)
+	}
+	if err := app.prepareRealtime(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare realtime storage: %w", err)
 	}
 	go func() {
 		for {
@@ -132,11 +149,19 @@ func NewApp(cfg Config) (*App, error) {
 	}()
 	// v2.2.0: 初始化Bot事件转发器
 	initBotForwarder(cfg.BotEndpoint, cfg.BotSecret)
+	app.realtime = newRealtimeService(app)
 	// v2.2.0-r2: 启动自动更新检查
 	startAutoUpdateChecker(app)
 	// v2.3.0: 启动过期文件清理
 	startFileExpireCleaner(app)
 	return app, nil
+}
+
+func (a *App) Close() error {
+	if a.realtime != nil {
+		a.realtime.close()
+	}
+	return a.db.Close()
 }
 
 func loadEnvFile() {
@@ -215,6 +240,9 @@ func loadConfig() Config {
 		AutoUpdate:                           getenvBool("CSAC_AUTO_UPDATE", false),
 		WebDir:                               filepath.Clean(getenv("CSAC_WEB_DIR", workspaceRoot)) + string(os.PathSeparator),
 		UpdateDir:                            filepath.Clean(getenv("CSAC_UPDATE_DIR", filepath.Join(workspaceRoot, "update"))) + string(os.PathSeparator),
+		WSOrigins:                            getenv("CSAC_WS_ORIGINS", "https://csac.chat"),
+		WSRetentionDays:                      int(limitBetween(getenvInt64("CSAC_WS_RETENTION_DAYS", 7), 1, 30)),
+		WSMaxConnections:                     int(limitBetween(getenvInt64("CSAC_WS_MAX_CONNECTIONS", 256), 16, 4096)),
 		// v2.3.0: 文件消息配置
 		FileAllowedTypes: getenv("CSAC_FILE_ALLOWED_TYPES", "txt,doc,docx,xls,xlsx,ppt,pptx,pdf,rtf,html,css,acr,acrg,jar,cpp,c,h,hpp,java,py,dart,js,ts,go,rs,rb,php,swift,kt,sh,bat,ps1,sql,json,xml,yaml,yml,md,csv,log,ini,cfg,conf,toml"),
 		FileMaxBytes:     getenvInt64("CSAC_FILE_MAX_BYTES", 2048), // 默认2KB
@@ -257,6 +285,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if r.URL.Path == "/ws/v2" {
+		a.handleWebSocketV2(w, r)
+		return
+	}
 
 	if isWebSocketRequest(r) && (r.URL.Path == "/ws" || r.URL.Path == "/websocket.php") {
 		a.handleWebSocket(w, r)
@@ -277,7 +309,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := NewCtx(a, w, r)
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("panic handling %s: %v", r.URL.String(), rec)
+			log.Printf("panic handling %s", r.URL.Path)
 			if !ctx.responded {
 				ctx.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "服务器内部错误"})
 			}
@@ -295,6 +327,9 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handler(ctx)
+	if a.realtime != nil {
+		a.realtime.notify()
+	}
 }
 
 func (a *App) sendCORSHeaders(w http.ResponseWriter, r *http.Request) {

@@ -55,6 +55,8 @@ func (fw *BotFramework) handleInternalEvent(w http.ResponseWriter, r *http.Reque
 	}
 
 	switch eventType {
+	case "realtime_event":
+		fw.onRealtimeEvent(eventData)
 	case "group_message":
 		fw.onGroupMessage(eventData)
 	case "private_message":
@@ -105,17 +107,21 @@ func (fw *BotFramework) onGroupMessage(payload map[string]any) {
 	}
 
 	event := map[string]any{
-		"type":        "event:group_msg",
-		"room_id":     roomID,
-		"uid":         senderUID,
-		"nickname":    nickname,
-		"msg_id":      msgID,
-		"content":     content,
-		"msg_type":    msgType,
-		"reply_to":    replyTo,
-		"image_urls":  imageUrls,
-		"timestamp":   timestamp,
-		"server_time": time.Now().Unix(),
+		"type":          "event:group_msg",
+		"room_id":       roomID,
+		"uid":           senderUID,
+		"nickname":      nickname,
+		"msg_id":        msgID,
+		"content":       content,
+		"msg_type":      msgType,
+		"reply_to":      replyTo,
+		"image_urls":    imageUrls,
+		"voice_url":     payload["voice_url"],
+		"duration":      payload["duration"],
+		"file_meta":     payload["file_meta"],
+		"emoji_address": payload["emoji_address"],
+		"timestamp":     timestamp,
+		"server_time":   time.Now().Unix(),
 	}
 
 	// 推送给WebSocket在线Bot
@@ -151,21 +157,27 @@ func (fw *BotFramework) onPrivateMessage(payload map[string]any) {
 
 	// 判断哪个UID是Bot
 	event := map[string]any{
-		"type":        "event:private_msg",
-		"from_uid":    fromUID,
-		"to_uid":      toUID,
-		"msg_id":      msgID,
-		"content":     content,
-		"msg_type":    msgType,
-		"reply_to":    replyTo,
-		"image_urls":  imageUrls,
-		"timestamp":   timestamp,
-		"server_time": time.Now().Unix(),
+		"type":          "event:private_msg",
+		"from_uid":      fromUID,
+		"to_uid":        toUID,
+		"msg_id":        msgID,
+		"content":       content,
+		"msg_type":      msgType,
+		"reply_to":      replyTo,
+		"image_urls":    imageUrls,
+		"voice_url":     payload["voice_url"],
+		"duration":      payload["duration"],
+		"file_meta":     payload["file_meta"],
+		"emoji_address": payload["emoji_address"],
+		"timestamp":     timestamp,
+		"server_time":   time.Now().Unix(),
 	}
 
 	// 推送给接收者是Bot的那个（需验证好友关系）
 	if bot := fw.GetBotByUID(toUID); bot != nil {
-		if fw.isFriend(fromUID, toUID) {
+		if !fw.botStillActive(bot) {
+			bot.close()
+		} else if fw.isFriend(fromUID, toUID) {
 			if err := fw.SendToBot(bot.BotID, event); err != nil {
 				log.Printf("ServerBot: failed to push private_msg to Bot [%s]: %v", bot.BotName, err)
 			}
@@ -178,6 +190,31 @@ func (fw *BotFramework) onPrivateMessage(payload map[string]any) {
 	if fw.scriptMgr != nil {
 		fw.scriptMgr.DispatchPrivateMsg(fromUID, toUID, msgID, content, msgType, replyTo, imageUrls, timestamp)
 	}
+}
+
+func (fw *BotFramework) onRealtimeEvent(payload map[string]any) {
+	recipients, _ := payload["recipient_uids"].([]any)
+	event, valid := payload["event"].(map[string]any)
+	if !valid {
+		return
+	}
+	for _, value := range recipients {
+		bot := fw.GetBotByUID(toInt64(value))
+		if bot == nil {
+			continue
+		}
+		if !fw.botStillActive(bot) {
+			bot.close()
+			continue
+		}
+		_ = bot.SendJSON(map[string]any{"type": "event:state", "event": event, "server_time": time.Now().Unix()})
+	}
+}
+
+func (fw *BotFramework) botStillActive(bot *BotConn) bool {
+	account, err := fw.fetchOne(`SELECT ba.id FROM bot_accounts ba JOIN chat_user u ON u.id = ba.uid
+        WHERE ba.id = ? AND ba.status = 1 AND u.status = 1 AND COALESCE(u.ban_until, 0) <= ?`, bot.BotID, time.Now().Unix())
+	return err == nil && account != nil
 }
 
 // onGroupJoin 处理入群事件
@@ -280,7 +317,9 @@ func (fw *BotFramework) onGroupDisband(payload map[string]any) {
 func (fw *BotFramework) GetBotsInGroup(roomID int64) []*BotConn {
 	// 查询该群中所有Bot的UID
 	rows, err := fw.fetchAll(
-		"SELECT gu.uid FROM chat_group_user gu JOIN bot_accounts ba ON gu.uid = ba.uid WHERE gu.room_id = ? AND ba.status = 1",
+		`SELECT gu.uid FROM chat_group_user gu JOIN bot_accounts ba ON gu.uid = ba.uid
+        JOIN chat_user u ON u.id = gu.uid WHERE gu.room_id = ? AND ba.status = 1
+        AND u.status = 1 AND COALESCE(u.ban_until, 0) <= UNIX_TIMESTAMP()`,
 		roomID,
 	)
 	if err != nil || len(rows) == 0 {

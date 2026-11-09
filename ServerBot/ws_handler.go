@@ -17,6 +17,14 @@ import (
 func (fw *BotFramework) handleBotWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 从查询参数获取Bot Token
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if authorization := r.Header.Get("Authorization"); authorization != "" {
+		parts := strings.Fields(authorization)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			http.Error(w, `{"success":false,"message":"无效的认证头"}`, http.StatusUnauthorized)
+			return
+		}
+		token = parts[1]
+	}
 	if token == "" {
 		http.Error(w, `{"success":false,"message":"缺少token参数"}`, http.StatusUnauthorized)
 		return
@@ -25,7 +33,7 @@ func (fw *BotFramework) handleBotWebSocket(w http.ResponseWriter, r *http.Reques
 	// 验证Token，获取Bot信息
 	bot, err := fw.authenticateBot(token)
 	if err != nil {
-		log.Printf("ServerBot: authentication failed for token %s...: %v", token[:min(8, len(token))], err)
+		log.Print("ServerBot: websocket authentication failed")
 		http.Error(w, `{"success":false,"message":"认证失败"}`, http.StatusUnauthorized)
 		return
 	}
@@ -78,7 +86,7 @@ func (fw *BotFramework) handleBotWebSocket(w http.ResponseWriter, r *http.Reques
 // authenticateBot 验证Bot Token并返回Bot信息
 func (fw *BotFramework) authenticateBot(token string) (map[string]any, error) {
 	bot, err := fw.fetchOne(
-		"SELECT ba.id, ba.uid, ba.dev_id, ba.bot_name, ba.status, ba.can_notify, ba.can_http, cu.nickname, cu.ban_until "+
+		"SELECT ba.id, ba.uid, ba.dev_id, ba.bot_name, ba.status, ba.can_notify, ba.can_http, cu.nickname, cu.ban_until, cu.status AS user_status "+
 			"FROM bot_accounts ba JOIN chat_user cu ON ba.uid = cu.id "+
 			"WHERE ba.bot_token = ? LIMIT 1", token,
 	)
@@ -89,6 +97,9 @@ func (fw *BotFramework) authenticateBot(token string) (map[string]any, error) {
 		return nil, errBotNotFound
 	}
 	// 检查关联用户是否被封禁
+	if intval(bot, "user_status") != 1 {
+		return nil, errBotBanned
+	}
 	if banUntil := intval(bot, "ban_until"); banUntil > time.Now().Unix() {
 		return nil, errBotBanned
 	}
@@ -98,7 +109,7 @@ func (fw *BotFramework) authenticateBot(token string) (map[string]any, error) {
 // readPump 从Bot读取消息
 func (fw *BotFramework) readPump(bot *BotConn) {
 	defer func() {
-		fw.UnregisterBot(bot.BotID)
+		fw.UnregisterBot(bot)
 		bot.Conn.Close()
 	}()
 
@@ -164,15 +175,17 @@ func (fw *BotFramework) handleBotMessage(bot *BotConn, data map[string]any) {
 		_ = bot.SendJSON(map[string]any{"type": "pong", "server_time": time.Now().Unix()})
 
 	case "subscribe":
-		// Bot订阅事件（群消息/私聊消息）
-		// 格式: {"type": "subscribe", "events": ["group_msg", "private_msg"]}
-		events, _ := data["events"].([]any)
-		eventList := make([]string, 0, len(events))
-		for _, e := range events {
-			if s, ok := e.(string); ok {
-				eventList = append(eventList, s)
-			}
+		eventList, valid := botEventNames(data["events"])
+		if !valid {
+			_ = bot.SendJSON(map[string]any{"type": "error", "message": "无效的事件订阅"})
+			return
 		}
+		bot.mu.Lock()
+		bot.filtered, bot.events = true, make(map[string]bool, len(eventList))
+		for _, name := range eventList {
+			bot.events[name] = true
+		}
+		bot.mu.Unlock()
 		_ = bot.SendJSON(map[string]any{
 			"type":        "subscribed",
 			"events":      eventList,
@@ -181,6 +194,9 @@ func (fw *BotFramework) handleBotMessage(bot *BotConn, data map[string]any) {
 		log.Printf("ServerBot: Bot [%s] subscribed to events: %v", bot.BotName, eventList)
 
 	case "unsubscribe":
+		bot.mu.Lock()
+		bot.filtered, bot.events = true, map[string]bool{}
+		bot.mu.Unlock()
 		_ = bot.SendJSON(map[string]any{
 			"type":        "unsubscribed",
 			"server_time": time.Now().Unix(),
@@ -190,6 +206,23 @@ func (fw *BotFramework) handleBotMessage(bot *BotConn, data map[string]any) {
 		// 未知消息类型，忽略
 		log.Printf("ServerBot: Bot [%s] sent unknown message type: %s", bot.BotName, msgType)
 	}
+}
+
+func botEventNames(raw any) ([]string, bool) {
+	values, valid := raw.([]any)
+	if !valid || len(values) > 16 {
+		return nil, false
+	}
+	allowed := map[string]bool{"*": true, "group_msg": true, "private_msg": true, "group_join": true, "group_leave": true, "group_mute": true, "group_disband": true, "state": true}
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		name, ok := value.(string)
+		if !ok || !allowed[name] {
+			return nil, false
+		}
+		names = append(names, name)
+	}
+	return names, true
 }
 
 // 错误定义

@@ -134,6 +134,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok"}`))
+	})
 	mux.HandleFunc("/", app.ServeHTTP)
 
 	server := &http.Server{
@@ -427,7 +431,7 @@ func (ctx *ACOPCtx) requireLogin() (int64, bool) {
 }
 
 func (ctx *ACOPCtx) requireAdmin() bool {
-	if cookie, err := ctx.r.Cookie("acop_admin"); err == nil && cookie.Value == fmt.Sprintf("admin_%d", ctx.app.config.AdminUID) {
+	if ctx.app.hasAdminSession(ctx.r) {
 		return true
 	}
 	if ctx.devID > 0 {

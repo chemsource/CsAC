@@ -32,13 +32,14 @@ type Session struct {
 }
 
 type Ctx struct {
-	app       *App
-	w         http.ResponseWriter
-	r         *http.Request
-	input     map[string]any
-	parsed    bool
-	session   *Session
-	responded bool
+	app               *App
+	w                 http.ResponseWriter
+	r                 *http.Request
+	input             map[string]any
+	parsed            bool
+	session           *Session
+	responded         bool
+	strictPermissions bool
 }
 
 func NewCtx(app *App, w http.ResponseWriter, r *http.Request) *Ctx {
@@ -192,6 +193,8 @@ func (c *Ctx) JSON(status int, data map[string]any) {
 	}
 	if err := c.saveSession(); err != nil {
 		log.Printf("save session failed: %v", err)
+		status = http.StatusServiceUnavailable
+		data = map[string]any{"success": false, "message": "会话保存失败，请稍后重试"}
 	}
 	callback := callbackCleaner.ReplaceAllString(c.r.URL.Query().Get("callback"), "")
 	payload, err := json.Marshal(data)
@@ -220,11 +223,11 @@ func writeJSONRaw(w http.ResponseWriter, status int, data map[string]any) {
 }
 
 func (c *Ctx) loadSession() {
-	cookie, err := c.r.Cookie(c.app.config.SessionCookieName)
-	if err != nil || cookie.Value == "" || !validSessionID(cookie.Value) {
+	token := requestSessionID(c.r, c.app.config.SessionCookieName)
+	if token == "" {
 		return
 	}
-	row, err := c.app.fetchOne("SELECT sid, uid, nickname, platform, sx, se, last_touch, expires_at FROM csac_sessions WHERE sid = ? AND expires_at > ? LIMIT 1", cookie.Value, time.Now().Unix())
+	row, err := c.app.fetchOne("SELECT sid, uid, nickname, platform, sx, se, last_touch, expires_at FROM csac_sessions WHERE sid = ? AND expires_at > ? LIMIT 1", token, time.Now().Unix())
 	if err != nil || row == nil {
 		return
 	}

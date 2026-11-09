@@ -723,6 +723,9 @@ func utcDateTime(ts int64) string {
 }
 
 func sessionExtActive(c *Ctx) bool {
+	if c.strictPermissions {
+		return false
+	}
 	if c.session != nil && c.session.SX && c.session.SE > time.Now().Unix() {
 		return true
 	}

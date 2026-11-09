@@ -5,6 +5,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -50,6 +51,9 @@ type BotConn struct {
 	Conn      *websocket.Conn
 	Send      chan []byte
 	mu        sync.Mutex
+	closed    bool
+	filtered  bool
+	events    map[string]bool
 }
 
 // BotFramework 框架主结构
@@ -244,8 +248,7 @@ func (fw *BotFramework) RegisterBot(bot *BotConn) {
 	defer fw.botsMu.Unlock()
 	// 如果该Bot已有旧连接，关闭旧连接
 	if old, ok := fw.bots[bot.BotID]; ok {
-		close(old.Send)
-		old.Conn.Close()
+		old.close()
 	}
 	fw.bots[bot.BotID] = bot
 	// 更新在线状态
@@ -254,14 +257,14 @@ func (fw *BotFramework) RegisterBot(bot *BotConn) {
 }
 
 // UnregisterBot 从连接池移除Bot
-func (fw *BotFramework) UnregisterBot(botID int64) {
+func (fw *BotFramework) UnregisterBot(connection *BotConn) {
 	fw.botsMu.Lock()
 	defer fw.botsMu.Unlock()
-	if bot, ok := fw.bots[botID]; ok {
-		close(bot.Send)
-		delete(fw.bots, botID)
-		_, _ = fw.db.Exec("UPDATE bot_accounts SET online = 0, last_online = ? WHERE id = ?", time.Now().Unix(), botID)
-		log.Printf("ServerBot: Bot [%s] (id=%d) disconnected", bot.BotName, botID)
+	if bot := fw.bots[connection.BotID]; bot == connection {
+		bot.close()
+		delete(fw.bots, bot.BotID)
+		_, _ = fw.db.Exec("UPDATE bot_accounts SET online = 0, last_online = ? WHERE id = ?", time.Now().Unix(), bot.BotID)
+		log.Printf("ServerBot: Bot [%s] (id=%d) disconnected", bot.BotName, bot.BotID)
 	}
 }
 
@@ -315,9 +318,41 @@ func (fw *BotFramework) SendToBotByUID(uid int64, data map[string]any) error {
 
 // SendJSON 向Bot连接发送JSON
 func (bc *BotConn) SendJSON(data map[string]any) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
 	bc.mu.Lock()
-	defer bc.mu.Unlock()
-	return bc.Conn.WriteJSON(data)
+	if bc.closed {
+		bc.mu.Unlock()
+		return fmt.Errorf("bot connection closed")
+	}
+	messageType, _ := data["type"].(string)
+	if strings.HasPrefix(messageType, "event:") && bc.filtered && !bc.events["*"] && !bc.events[strings.TrimPrefix(messageType, "event:")] {
+		bc.mu.Unlock()
+		return nil
+	}
+	select {
+	case bc.Send <- payload:
+		bc.mu.Unlock()
+		return nil
+	default:
+		bc.mu.Unlock()
+		bc.close()
+		return fmt.Errorf("bot event queue full")
+	}
+}
+
+func (bc *BotConn) close() {
+	bc.mu.Lock()
+	if !bc.closed {
+		bc.closed = true
+		close(bc.Send)
+	}
+	bc.mu.Unlock()
+	if bc.Conn != nil {
+		_ = bc.Conn.Close()
+	}
 }
 
 // CheckRateLimit 检查速率限制

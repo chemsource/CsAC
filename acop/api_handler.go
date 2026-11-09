@@ -1154,15 +1154,7 @@ func (app *ACOP) apiAdminLogin(ctx *ACOPCtx) {
 		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "非管理员账号"})
 		return
 	}
-	// 设置acop_admin cookie
-	http.SetCookie(ctx.w, &http.Cookie{
-		Name:     "acop_admin",
-		Value:    fmt.Sprintf("admin_%d", uid),
-		Path:     "/",
-		MaxAge:   86400 * 7,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	ctx.setAdminSession(uid)
 	ctx.JSON(http.StatusOK, map[string]any{"success": true, "message": "管理员登录成功"})
 }
 
@@ -1181,7 +1173,7 @@ func (app *ACOP) apiAdminLogout(ctx *ACOPCtx) {
 // apiAdminCheck 检查当前会话是否有管理员权限
 func (app *ACOP) apiAdminCheck(ctx *ACOPCtx) {
 	isAdmin := false
-	if cookie, err := ctx.r.Cookie("acop_admin"); err == nil && cookie.Value == fmt.Sprintf("admin_%d", app.config.AdminUID) {
+	if app.hasAdminSession(ctx.r) {
 		isAdmin = true
 	}
 	if !isAdmin && ctx.devID > 0 {

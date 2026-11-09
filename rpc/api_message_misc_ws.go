@@ -167,7 +167,7 @@ func apiMessageSendPrivateMsg(c *Ctx) {
 		"content":    content,
 		"msg_type":   msgType,
 		"reply_to":   c.InputInt("reply_to"),
-		"image_urls": "",
+		"image_urls": imageURL,
 		"timestamp":  time.Now().Unix(),
 	})
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID})
@@ -286,6 +286,8 @@ func apiMessageSendVoiceMsg(c *Ctx) {
 			"uid":        uid,
 			"nickname":   nickname,
 			"content":    voiceURL,
+			"voice_url":  voiceURL,
+			"duration":   duration,
 			"msg_type":   3,
 			"reply_to":   0,
 			"image_urls": "",
@@ -306,6 +308,7 @@ func apiMessageSendVoiceMsg(c *Ctx) {
 		if err != nil {
 			panic(err)
 		}
+		pushBotEvent("private_message", map[string]any{"msg_id": msgID, "from_uid": uid, "to_uid": friendID, "content": "[语音]", "msg_type": 3, "voice_url": voiceURL, "duration": duration, "timestamp": time.Now().Unix()})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "语音发送成功", "msg_id": msgID, "url": voiceURL})
 		return
 	}
@@ -356,15 +359,16 @@ func apiMessageSendEmojiMsg(c *Ctx) {
 		level := refreshGroupMemberLevel(c.app, roomID, uid)
 		// v2.2.0: 转发群表情包消息事件到ServerBot
 		pushBotEvent("group_message", map[string]any{
-			"msg_id":     msgID,
-			"room_id":    roomID,
-			"uid":        uid,
-			"nickname":   strDefault(getUser(c.app, uid, "nickname"), "nickname", "未知用户"),
-			"content":    abbr,
-			"msg_type":   5,
-			"reply_to":   0,
-			"image_urls": "",
-			"timestamp":  time.Now().Unix(),
+			"msg_id":        msgID,
+			"room_id":       roomID,
+			"uid":           uid,
+			"nickname":      strDefault(getUser(c.app, uid, "nickname"), "nickname", "未知用户"),
+			"content":       abbr,
+			"emoji_address": str(emoji, "address"),
+			"msg_type":      5,
+			"reply_to":      0,
+			"image_urls":    "",
+			"timestamp":     time.Now().Unix(),
 		})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID, "content": abbr, "msg_type": 5, "address": str(emoji, "address"), "member_level": level["level"], "member_title": level["title"]})
 		return
@@ -377,6 +381,7 @@ func apiMessageSendEmojiMsg(c *Ctx) {
 		if err != nil {
 			panic(err)
 		}
+		pushBotEvent("private_message", map[string]any{"msg_id": msgID, "from_uid": uid, "to_uid": friendID, "content": abbr, "msg_type": 5, "emoji_address": str(emoji, "address"), "timestamp": time.Now().Unix()})
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "发送成功", "msg_id": msgID, "content": abbr, "msg_type": 5, "address": str(emoji, "address")})
 		return
 	}
@@ -521,7 +526,7 @@ func apiMessageGetGroupMsg(c *Ctx) {
 		order = "ASC"
 	}
 	rows, err := c.app.fetchAll(`SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
+		m.add_time, TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 		gu.title AS member_title, gu.level AS member_level,
 		rply.content AS reply_content, rply.uid AS reply_from_uid, ru.nickname AS reply_nickname
 		FROM chat_msg m
@@ -679,7 +684,7 @@ func apiMessageRecallMsg(c *Ctx) {
 		if _, ok := requireGroupMember(c, roomID, uid); !ok {
 			return
 		}
-		msg, _ := c.app.fetchOne("SELECT uid, add_time, UNIX_TIMESTAMP(add_time) AS created_at, was_replied FROM chat_msg WHERE id = ? AND room_id = ?", msgID, roomID)
+		msg, _ := c.app.fetchOne("SELECT uid, add_time, TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', add_time) AS created_at, was_replied FROM chat_msg WHERE id = ? AND room_id = ?", msgID, roomID)
 		if msg == nil {
 			c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "消息不存在"})
 			return
@@ -757,7 +762,7 @@ func mentionNoticeRows(a *App, uid int64, kind string, limit int64) []map[string
 	var err error
 	if kind == "reply" {
 		rows, err = a.fetchAll(`SELECT m.id, m.room_id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
+			m.add_time, TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 			r.room_name, gu.title AS member_title, gu.level AS member_level,
 			original.content AS reply_content, original.uid AS reply_from_uid, ou.nickname AS reply_nickname
 			FROM chat_msg m
@@ -773,7 +778,7 @@ func mentionNoticeRows(a *App, uid int64, kind string, limit int64) []map[string
 			LIMIT `+fmt.Sprintf("%d", limit), uid, uid)
 	} else {
 		rows, err = a.fetchAll(`SELECT m.id, m.room_id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-			m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
+			m.add_time, TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', m.add_time) AS created_at, m.reply_to, m.mention_uids, m.was_replied, u.avatar, u.is_bot,
 			r.room_name, gu.title AS member_title, gu.level AS member_level,
 			replied.content AS reply_content, replied.uid AS reply_from_uid, ru.nickname AS reply_nickname
 			FROM chat_msg m
@@ -870,7 +875,7 @@ func apiEssenceGet(c *Ctx) {
 		return
 	}
 	rows, err := c.app.fetchAll(`SELECT m.id, m.uid, m.nickname, m.content, m.msg_type, m.voice_duration,
-		m.add_time, UNIX_TIMESTAMP(m.add_time) AS created_at, m.was_replied, u.avatar, u.is_bot, gu.title AS member_title, gu.level AS member_level,
+		m.add_time, TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', m.add_time) AS created_at, m.was_replied, u.avatar, u.is_bot, gu.title AS member_title, gu.level AS member_level,
 		e.set_uid, e.set_nick, e.set_time
 		FROM chat_msg m
 		JOIN chat_essence e ON m.id = e.msg_id AND m.room_id = e.room_id
@@ -1065,7 +1070,10 @@ func apiAdminBan(c *Ctx) {
 }
 
 func adminRequireToken(c *Ctx, consume bool) bool {
-	token := c.InputString("token")
+	token := strings.TrimSpace(c.r.Header.Get("X-CsAC-Admin-Token"))
+	if token == "" {
+		token = c.InputString("token")
+	}
 	if token == "" {
 		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "无效或过期的令牌"})
 		return false
@@ -1076,7 +1084,11 @@ func adminRequireToken(c *Ctx, consume bool) bool {
 		return false
 	}
 	if consume {
-		_, _ = c.app.updateRow("admin_tokens", map[string]any{"used": 1}, "id = ?", intval(row, "id"))
+		updated, err := c.app.exec("UPDATE admin_tokens SET used = 1 WHERE id = ? AND used = 0 AND expires_at > ?", intval(row, "id"), time.Now().Unix())
+		if err != nil || updated != 1 {
+			c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "无效或过期的令牌"})
+			return false
+		}
 	}
 	return true
 }
@@ -1318,7 +1330,7 @@ func (a *App) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var conn net.Conn
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("panic handling websocket %s: %v", r.URL.String(), rec)
+			log.Printf("panic handling websocket %s", r.URL.Path)
 			if conn != nil {
 				_ = conn.Close()
 			} else {
