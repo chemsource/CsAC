@@ -5,7 +5,6 @@ package main
 
 import (
 	"crypto/hmac"
-	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -21,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"csac/internal/passwords"
 )
 
 var platformPattern = regexp.MustCompile(`^[A-Za-z0-9_.]+-[A-Za-z0-9_.]+-[A-Za-z0-9_.-]+$`)
@@ -34,21 +35,12 @@ var voiceMimes = []string{
 	"audio/amr", "audio/x-amr", "audio/flac", "audio/x-flac", "audio/x-caf", "audio/caf", "audio/aiff", "audio/x-aiff",
 }
 
-func hashPassword(password, username string) string {
-	sum := sha256.Sum256([]byte(password + username))
-	return hex.EncodeToString(sum[:])
-}
-
-func isPasswordValid(user Row, password string) bool {
-	stored := str(user, "pwd")
-	username := str(user, "username")
-	if len(stored) == 32 {
-		md := md5.Sum([]byte(password))
-		if hmac.Equal([]byte(stored), []byte(hex.EncodeToString(md[:]))) {
-			return true
-		}
+func (a *App) authenticatePassword(user Row, password string) bool {
+	valid, err := passwords.Authenticate(a.db, intval(user, "id"), str(user, "username"), str(user, "pwd"), password)
+	if err != nil {
+		panic(err)
 	}
-	return hmac.Equal([]byte(stored), []byte(hashPassword(password, username)))
+	return valid
 }
 
 func createInviteCode(length int) string {

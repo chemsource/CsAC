@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"csac/internal/passwords"
 )
 
 // ===== 开发者认证 =====
@@ -34,6 +36,10 @@ func (app *ACOP) apiDevRegister(ctx *ACOPCtx) {
 	csacPassword := ctx.param("csac_password")
 	if email == "" || pwd == "" || devName == "" {
 		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写完整信息"})
+		return
+	}
+	if len(pwd) > passwords.MaxPasswordBytes {
+		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "密码最多72字节，中文等字符可能占多个字节"})
 		return
 	}
 	if csacUsername == "" || csacPassword == "" {
@@ -292,7 +298,7 @@ func (app *ACOP) apiBotCreate(ctx *ACOPCtx) {
 	uid, err := app.insertRow("chat_user", map[string]any{
 		"username":              username,
 		"nickname":              nickname,
-		"pwd":                   generateSecureToken(32), // 随机密码，Bot不通过密码登录
+		"pwd":                   "", // Bot通过Token认证，禁用密码登录
 		"email":                 nil,
 		"add_time":              time.Now().Unix(),
 		"avatar":                "default.png",
@@ -1138,22 +1144,11 @@ func (app *ACOP) apiAdminLogin(ctx *ACOPCtx) {
 		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写CsAC账号和密码"})
 		return
 	}
-	user, err := app.fetchOne("SELECT id, pwd, ban_until FROM chat_user WHERE username = ?", username)
-	if err != nil || user == nil {
-		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "账号不存在"})
+	uid, err := app.verifyCsacAccount(username, password)
+	if err != nil {
+		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": err.Error()})
 		return
 	}
-	banUntil := intval(user, "ban_until")
-	if banUntil > 0 && banUntil > time.Now().Unix() {
-		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "账号已被封禁"})
-		return
-	}
-	expectedPwd := hashCsacPassword(password, username)
-	if str(user, "pwd") != expectedPwd {
-		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "密码错误"})
-		return
-	}
-	uid := intval(user, "id")
 	// 校验uid是否是管理员
 	if uid != app.config.AdminUID {
 		ctx.JSON(http.StatusOK, map[string]any{"success": false, "message": "非管理员账号"})

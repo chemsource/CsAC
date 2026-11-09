@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"csac/internal/passwords"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -113,6 +115,21 @@ func NewApp(cfg Config) (*App, error) {
 	app.columnCacheMu <- struct{}{}
 	app.routes = app.buildRoutes()
 	app.ensureSchema()
+	if err := passwords.EnsureSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare password storage: %w", err)
+	}
+	go func() {
+		for {
+			count, err := passwords.MigrateLegacy(db)
+			if err == nil {
+				log.Printf("legacy password migration complete: %d credentials upgraded", count)
+				return
+			}
+			log.Printf("legacy password migration failed after %d upgrades, retrying in one minute: %v", count, err)
+			time.Sleep(time.Minute)
+		}
+	}()
 	// v2.2.0: 初始化Bot事件转发器
 	initBotForwarder(cfg.BotEndpoint, cfg.BotSecret)
 	// v2.2.0-r2: 启动自动更新检查

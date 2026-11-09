@@ -21,6 +21,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"csac/internal/passwords"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -36,7 +38,7 @@ func apiAuthLogin(c *Ctx) {
 		return
 	}
 	user, err := c.app.fetchOne("SELECT * FROM chat_user WHERE username = ?", username)
-	if err != nil || user == nil || !isPasswordValid(user, pwd) {
+	if err != nil || user == nil || !c.app.authenticatePassword(user, pwd) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "账号或密码错误"})
 		return
 	}
@@ -229,6 +231,10 @@ func apiAuthRegister(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "密码至少6位"})
 		return
 	}
+	if len(pwd) > passwords.MaxPasswordBytes {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "密码最多72字节，中文等字符可能占多个字节"})
+		return
+	}
 	row, _ := c.app.fetchOne("SELECT id FROM chat_user WHERE username = ?", username)
 	if row != nil {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该登录账号已被注册"})
@@ -249,6 +255,10 @@ func apiAuthRegister(c *Ctx) {
 			return
 		}
 	}
+	passwordHash, err := passwords.Hash(pwd)
+	if err != nil {
+		panic(err)
+	}
 	tx, err := c.app.db.Begin()
 	if err != nil {
 		panic(err)
@@ -261,7 +271,7 @@ func apiAuthRegister(c *Ctx) {
 			return
 		}
 	}
-	newUID, err := c.app.insertRowTx(tx, "chat_user", map[string]any{"username": username, "nickname": nickname, "email": nullableString(email), "pwd": hashPassword(pwd, username), "add_time": time.Now().Unix(), "avatar": c.app.config.DefaultAvatar, "hide_conv": "", "is_first_login": 1, "last_active": time.Now().Unix()})
+	newUID, err := c.app.insertRowTx(tx, "chat_user", map[string]any{"username": username, "nickname": nickname, "email": nullableString(email), "pwd": passwordHash, "add_time": time.Now().Unix(), "avatar": c.app.config.DefaultAvatar, "hide_conv": "", "is_first_login": 1, "last_active": time.Now().Unix()})
 	if err != nil {
 		panic(err)
 	}
@@ -508,7 +518,7 @@ func apiUserUpdateProfile(c *Ctx) {
 		c.markSessionDirty()
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "昵称修改成功", "nickname": nickname})
 	case "password":
-		changePassword(c, uid, user, true)
+		changePassword(c, uid, true)
 	case "avatar":
 		if !hasMultipartFile(c, "avatar") {
 			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请选择图片"})
@@ -551,16 +561,12 @@ func apiUserUpdateProfile(c *Ctx) {
 	}
 }
 
-func changePassword(c *Ctx, uid int64, user Row, requireOld bool) {
+func changePassword(c *Ctx, uid int64, requireOld bool) {
 	oldPwd := c.InputString("old_password")
 	newPwd := c.InputString("new_password")
 	confirmPwd := c.InputString("confirm_password")
 	if (requireOld && oldPwd == "") || newPwd == "" || confirmPwd == "" {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写完整"})
-		return
-	}
-	if requireOld && !isPasswordValid(user, oldPwd) {
-		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "原密码错误"})
 		return
 	}
 	if len(newPwd) < 6 {
@@ -571,7 +577,37 @@ func changePassword(c *Ctx, uid int64, user Row, requireOld bool) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "两次输入的密码不一致"})
 		return
 	}
-	_, _ = c.app.updateRow("chat_user", map[string]any{"pwd": hashPassword(newPwd, str(user, "username")), "last_active": time.Now().Unix()}, "id = ?", uid)
+	if len(newPwd) > passwords.MaxPasswordBytes {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "新密码最多72字节，中文等字符可能占多个字节"})
+		return
+	}
+	passwordHash, err := passwords.Hash(newPwd)
+	if err != nil {
+		panic(err)
+	}
+	tx, err := c.app.db.Begin()
+	if err != nil {
+		panic(err)
+	}
+	defer tx.Rollback()
+	user, err := fetchOne(tx, "SELECT username, pwd FROM chat_user WHERE id = ? FOR UPDATE", uid)
+	if err != nil {
+		panic(err)
+	}
+	if user == nil {
+		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
+		return
+	}
+	if requireOld && !passwords.Verify(str(user, "pwd"), oldPwd, str(user, "username")) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "原密码错误"})
+		return
+	}
+	if _, err := tx.Exec("UPDATE chat_user SET pwd = ?, last_active = ? WHERE id = ?", passwordHash, time.Now().Unix(), uid); err != nil {
+		panic(err)
+	}
+	if err := tx.Commit(); err != nil {
+		panic(err)
+	}
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "密码修改成功"})
 }
 
@@ -588,7 +624,7 @@ func apiUserUpgradePassword(c *Ctx) {
 		c.JSON(http.StatusNotFound, map[string]any{"success": false, "message": "用户不存在"})
 		return
 	}
-	changePassword(c, uid, user, false)
+	changePassword(c, uid, false)
 }
 
 func apiUserDeleteAccount(c *Ctx) {
@@ -876,7 +912,7 @@ func apiAuthLoginByEmail(c *Ctx) {
 		return
 	}
 	user, err := c.app.fetchOne("SELECT * FROM chat_user WHERE email = ?", email)
-	if err != nil || user == nil || !isPasswordValid(user, pwd) {
+	if err != nil || user == nil || !c.app.authenticatePassword(user, pwd) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "邮箱或密码错误"})
 		return
 	}

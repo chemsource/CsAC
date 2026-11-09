@@ -320,7 +320,7 @@ CREATE TABLE `chat_user` (
   `id` int(11) NOT NULL,
   `username` varchar(30) NOT NULL,
   `nickname` varchar(30) NOT NULL,
-  `pwd` varchar(64) NOT NULL,
+  `pwd` varchar(255) NOT NULL,
   `add_time` int(11) NOT NULL,
   `avatar` varchar(255) DEFAULT '',
   `is_first_login` tinyint(1) DEFAULT 1 COMMENT '1=首次登录需看教程 0=已看过',

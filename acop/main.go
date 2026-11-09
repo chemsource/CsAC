@@ -27,6 +27,8 @@ import (
 	"sync"
 	"time"
 
+	"csac/internal/passwords"
+
 	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -173,6 +175,10 @@ func NewACOP(cfg Config) (*ACOP, error) {
 	app.routes = app.buildRoutes()
 	app.ensureSchema()
 	app.ensureSchemaMigrations()
+	if err := passwords.EnsureSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare password storage: %w", err)
+	}
 	return app, nil
 }
 
@@ -944,24 +950,20 @@ func (app *ACOP) ensureSchemaMigrations() {
 // ===== 密码处理 =====
 
 func hashPasswordBcrypt(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
+	return passwords.Hash(password)
 }
 
 func checkPasswordBcrypt(password, hash string) bool {
+	if len(password) > passwords.MaxPasswordBytes {
+		return false
+	}
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
 
-// hashCsacPassword CsAC主服务器的密码哈希方式: sha256(password + username)
-func hashCsacPassword(password, username string) string {
-	sum := sha256.Sum256([]byte(password + username))
-	return hex.EncodeToString(sum[:])
-}
-
 // verifyCsacAccount 验证CsAC主服务器账号，返回 (uid, error)
 func (app *ACOP) verifyCsacAccount(username, password string) (int64, error) {
-	user, err := app.fetchOne("SELECT id, pwd, ban_until FROM chat_user WHERE username = ?", username)
+	user, err := app.fetchOne("SELECT id, username, pwd, ban_until FROM chat_user WHERE username = ?", username)
 	if err != nil || user == nil {
 		return 0, fmt.Errorf("账号不存在")
 	}
@@ -971,9 +973,12 @@ func (app *ACOP) verifyCsacAccount(username, password string) (int64, error) {
 		return 0, fmt.Errorf("账号已被封禁")
 	}
 	// 验证密码
-	storedPwd := str(user, "pwd")
-	expectedPwd := hashCsacPassword(password, username)
-	if storedPwd != expectedPwd {
+	valid, err := passwords.Authenticate(app.db, intval(user, "id"), str(user, "username"), str(user, "pwd"), password)
+	if err != nil {
+		log.Printf("ACOP: password upgrade failed: %v", err)
+		return 0, fmt.Errorf("密码验证失败")
+	}
+	if !valid {
 		return 0, fmt.Errorf("密码错误")
 	}
 	return intval(user, "id"), nil
