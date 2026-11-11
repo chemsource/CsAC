@@ -35,7 +35,7 @@ docker compose ps
 
 部署完成后，CI 通过 HTTPS 验证 `csac.chat/healthz`。数据库连接参数、缓存盐及服务内部密钥从服务器的私密 `.env` 读取。
 
-`CSAC_REQUIRE_EMAIL_VERIFICATION=false` 用于当前经明确选择的无 SMTP 部署，开放账号密码注册和登录。配置实际 `CSAC_SMTP_*` 后可改为 `true` 并重新创建 RPC 容器；邮箱验证码、邮箱登录和找回账号依赖 SMTP。ACOP 自身的 SMTP 配置须按其 `.env.example` 接入后再启用对应邮件功能。
+邮箱验证码、邮箱登录和找回账号依赖 SMTP。将 RPC 的 `CSAC_SMTP_*` 和 ACOP 的 `ACOP_SMTP_*` 配置在服务器私密 `.env` 中，再重新创建相应容器。`CSAC_REQUIRE_EMAIL_VERIFICATION` 同时控制注册和已有账号的验证要求；可用 `CSAC_REQUIRE_REGISTER_EMAIL_VERIFICATION` 和 `CSAC_REQUIRE_EXISTING_USER_EMAIL_VERIFICATION` 分别覆盖。开启已有账号验证前，应确认未绑定邮箱的用户可以完成绑定。
 
 ## 域名与前端
 
