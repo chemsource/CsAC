@@ -44,21 +44,7 @@ func apiFriendSendRequest(c *Ctx) {
 	uid1, uid2 := friendPair(myUID, toUID)
 	rel := friendRelation(c.app, myUID, toUID)
 	if targetActiveBot {
-		if rel != nil {
-			switch intval(rel, "status") {
-			case 1:
-				c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们已经是好友了"})
-				return
-			}
-		}
-		now := localDateTime(time.Now().Unix())
-		if rel != nil {
-			_, _ = c.app.updateRow("friend_relation", map[string]any{"status": 1, "from_uid": myUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
-		} else {
-			_, _ = c.app.insertRow("friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 1, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now})
-		}
-		_, _ = c.app.exec("UPDATE friend_request SET status = 1 WHERE status = 0 AND ((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?))", myUID, toUID, toUID, myUID)
-		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Bot已添加为好友", "auto_accepted": true})
+		autoAcceptBotFriend(c, myUID, toUID, rel)
 		return
 	}
 	if rel != nil {
@@ -95,8 +81,13 @@ func apiFriendSendRequest(c *Ctx) {
 	defer tx.Rollback()
 	now := localDateTime(time.Now().Unix())
 	if rel != nil {
-		if _, err := c.app.updateRowTx(tx, "friend_relation", map[string]any{"status": 0, "from_uid": myUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2); err != nil {
+		updated, err := c.app.updateRowTx(tx, "friend_relation", map[string]any{"status": 0, "from_uid": myUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ? AND status = ? AND status <> 4", uid1, uid2, intval(rel, "status"))
+		if err != nil {
 			panic(err)
+		}
+		if updated != 1 {
+			c.JSON(http.StatusConflict, map[string]any{"success": false, "message": "好友关系状态已改变，请刷新后重试"})
+			return
 		}
 	} else if _, err := c.app.insertRowTx(tx, "friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 0, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now}); err != nil {
 		panic(err)
@@ -113,6 +104,41 @@ func apiFriendSendRequest(c *Ctx) {
 	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "好友请求已发送"})
 }
 
+func autoAcceptBotFriend(c *Ctx, myUID, botUID int64, rel Row) {
+	if rel != nil {
+		switch intval(rel, "status") {
+		case 1:
+			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们已经是好友了"})
+			return
+		case 4:
+			if intval(rel, "delete_by") != myUID {
+				c.JSON(http.StatusOK, map[string]any{"success": false, "message": "存在拉黑关系，无法添加"})
+				return
+			}
+		}
+	}
+	uid1, uid2 := friendPair(myUID, botUID)
+	now := localDateTime(time.Now().Unix())
+	if rel != nil {
+		updated, err := c.app.updateRow("friend_relation", map[string]any{"status": 1, "from_uid": myUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ? AND (status <> 4 OR delete_by = ?)", uid1, uid2, myUID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "好友关系更新失败"})
+			return
+		}
+		if updated != 1 {
+			c.JSON(http.StatusConflict, map[string]any{"success": false, "message": "好友关系状态已改变，请刷新后重试"})
+			return
+		}
+	} else {
+		if _, err := c.app.insertRow("friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 1, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now}); err != nil {
+			c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "好友关系更新失败"})
+			return
+		}
+	}
+	_, _ = c.app.exec("UPDATE friend_request SET status = 1 WHERE status = 0 AND ((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?))", myUID, botUID, botUID, myUID)
+	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Bot已添加为好友", "auto_accepted": true})
+}
+
 func apiFriendHandleRequest(c *Ctx) {
 	if !c.RequireMethod(http.MethodPost) {
 		return
@@ -127,25 +153,38 @@ func apiFriendHandleRequest(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "参数错误"})
 		return
 	}
-	request, _ := c.app.fetchOne("SELECT * FROM friend_request WHERE id = ? AND to_uid = ? AND status = 0", requestID, myUID)
+	tx, err := c.app.db.Begin()
+	if err != nil {
+		panic(err)
+	}
+	defer tx.Rollback()
+	request, err := fetchOne(tx, "SELECT * FROM friend_request WHERE id = ? AND to_uid = ? AND status = 0 FOR UPDATE", requestID, myUID)
+	if err != nil {
+		panic(err)
+	}
 	if request == nil {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请求不存在或已处理"})
 		return
 	}
 	fromUID := intval(request, "from_uid")
 	uid1, uid2 := friendPair(myUID, fromUID)
-	tx, err := c.app.db.Begin()
-	if err != nil {
-		panic(err)
+	var rel Row
+	if action == "agree" {
+		rel, err = fetchOne(tx, "SELECT * FROM friend_relation WHERE uid1 = ? AND uid2 = ? FOR UPDATE", uid1, uid2)
+		if err != nil {
+			panic(err)
+		}
+		if rel != nil && intval(rel, "status") == 4 {
+			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "存在拉黑关系，无法同意好友请求"})
+			return
+		}
 	}
-	defer tx.Rollback()
 	status := int64(2)
 	if action == "agree" {
 		status = 1
 	}
 	txExec(tx, "UPDATE friend_request SET status = ? WHERE id = ?", status, requestID)
 	if action == "agree" {
-		rel := friendRelation(c.app, myUID, fromUID)
 		now := localDateTime(time.Now().Unix())
 		if rel != nil {
 			if _, err := c.app.updateRowTx(tx, "friend_relation", map[string]any{"status": 1, "from_uid": fromUID, "delete_by": nil, "delete_time": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2); err != nil {
@@ -208,26 +247,14 @@ func apiFriendRecoverFriend(c *Ctx) {
 	}
 	friendID := c.InputInt("friend_id")
 	direct := c.InputBool("direct")
-	if friendID <= 0 {
+	if friendID <= 0 || friendID == myUID {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "参数错误"})
 		return
 	}
 	rel := friendRelation(c.app, myUID, friendID)
 	target := getUser(c.app, friendID, "id, is_bot, platform, status")
 	if target != nil && intval(target, "status") == 1 && activeBotAccount(c.app, friendID) {
-		uid1, uid2 := friendPair(myUID, friendID)
-		now := localDateTime(time.Now().Unix())
-		if rel != nil {
-			if intval(rel, "status") == 1 {
-				c.JSON(http.StatusOK, map[string]any{"success": false, "message": "你们已经是好友了"})
-				return
-			}
-			_, _ = c.app.updateRow("friend_relation", map[string]any{"status": 1, "from_uid": myUID, "delete_time": nil, "delete_by": nil, "update_time": now}, "uid1 = ? AND uid2 = ?", uid1, uid2)
-		} else {
-			_, _ = c.app.insertRow("friend_relation", map[string]any{"uid1": uid1, "uid2": uid2, "status": 1, "from_uid": myUID, "create_time": now, "created_at": now, "update_time": now})
-		}
-		_, _ = c.app.exec("UPDATE friend_request SET status = 1 WHERE status = 0 AND ((from_uid = ? AND to_uid = ?) OR (from_uid = ? AND to_uid = ?))", myUID, friendID, friendID, myUID)
-		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Bot已添加为好友", "auto_accepted": true})
+		autoAcceptBotFriend(c, myUID, friendID, rel)
 		return
 	}
 	if rel == nil {
@@ -237,12 +264,24 @@ func apiFriendRecoverFriend(c *Ctx) {
 	uid1, uid2 := friendPair(myUID, friendID)
 	status := intval(rel, "status")
 	deleteBy := intval(rel, "delete_by")
+	// Older clients omit direct when undoing their own block.
+	if status == 4 && deleteBy == myUID {
+		direct = true
+	}
 	if direct {
 		if (status != 2 && status != 4) || deleteBy != myUID {
 			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "当前状态无法直接恢复"})
 			return
 		}
-		_, _ = c.app.updateRow("friend_relation", map[string]any{"status": 1, "delete_time": nil, "delete_by": nil, "update_time": localDateTime(time.Now().Unix())}, "uid1 = ? AND uid2 = ?", uid1, uid2)
+		updated, err := c.app.updateRow("friend_relation", map[string]any{"status": 1, "delete_time": nil, "delete_by": nil, "update_time": localDateTime(time.Now().Unix())}, "uid1 = ? AND uid2 = ? AND status = ? AND delete_by = ?", uid1, uid2, status, myUID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "好友关系恢复失败"})
+			return
+		}
+		if updated != 1 {
+			c.JSON(http.StatusConflict, map[string]any{"success": false, "message": "好友关系状态已改变，请刷新后重试"})
+			return
+		}
 		c.JSON(http.StatusOK, map[string]any{"success": true, "message": "好友关系已恢复"})
 		return
 	}
@@ -250,17 +289,44 @@ func apiFriendRecoverFriend(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "当前状态无法申请恢复"})
 		return
 	}
-	if deleteTime := parseUTCDateTime(str(rel, "delete_time")); deleteTime > 0 && deleteTime < time.Now().Unix()-259200 {
+	tx, err := c.app.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "恢复请求发送失败"})
+		return
+	}
+	defer tx.Rollback()
+	current, err := fetchOne(tx, "SELECT * FROM friend_relation WHERE uid1 = ? AND uid2 = ? FOR UPDATE", uid1, uid2)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "恢复请求检查失败"})
+		return
+	}
+	if current == nil || (intval(current, "status") != 2 && intval(current, "status") != 3) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "当前状态无法申请恢复"})
+		return
+	}
+	if deleteTime := parseUTCDateTime(str(current, "delete_time")); deleteTime > 0 && deleteTime < time.Now().Unix()-259200 {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "删除已超过3天，无法恢复"})
 		return
 	}
-	recent, _ := c.app.fetchOne("SELECT id FROM friend_request WHERE from_uid = ? AND to_uid = ? AND type = 'recover' AND status IN (0,2) AND UNIX_TIMESTAMP(create_time) > ?", myUID, friendID, time.Now().Unix()-86400)
+	// The schema stores recovery requests as type 2; older databases may contain type 0.
+	recent, err := fetchOne(tx, "SELECT id FROM friend_request WHERE from_uid = ? AND to_uid = ? AND type IN (0, 2) AND status IN (0, 2) AND UNIX_TIMESTAMP(create_time) > ?", myUID, friendID, time.Now().Unix()-86400)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "恢复请求检查失败"})
+		return
+	}
 	if recent != nil {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "24小时内已发送过恢复请求"})
 		return
 	}
 	message := c.InputString("message", "希望恢复好友关系")
-	_, _ = c.app.insertRow("friend_request", map[string]any{"from_uid": myUID, "to_uid": friendID, "type": "recover", "status": 0, "content": message, "create_time": localDateTime(time.Now().Unix())})
+	if _, err := c.app.insertRowTx(tx, "friend_request", map[string]any{"from_uid": myUID, "to_uid": friendID, "type": 2, "status": 0, "content": message, "create_time": localDateTime(time.Now().Unix())}); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "恢复请求发送失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "恢复请求发送失败"})
+		return
+	}
 	nick := "用户"
 	if c.session != nil && c.session.Nickname != "" {
 		nick = c.session.Nickname
