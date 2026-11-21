@@ -1426,7 +1426,7 @@ func (a *App) authenticateWebSocket(c *Ctx) (int64, bool, bool) {
 	if uid <= 0 || !checkUserExists(a, uid) || checkUserBan(a, uid) != nil {
 		return 0, false, false
 	}
-	if a.config.RequireExistingUserEmailVerification && !userEmailVerified(a, uid) {
+	if a.userNeedsEmailVerification(uid) {
 		return 0, false, false
 	}
 	touchUser(c, uid)

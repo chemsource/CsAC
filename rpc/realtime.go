@@ -402,7 +402,7 @@ func sessionFingerprint(token string) string {
 }
 
 func (a *App) wsEventAccess(uid int64) bool {
-	return !a.config.RequireExistingUserEmailVerification || userEmailVerified(a, uid)
+	return !a.userNeedsEmailVerification(uid)
 }
 
 func (a *App) permittedPresence(ctx context.Context, uid, other int64) bool {

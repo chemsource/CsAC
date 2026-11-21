@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -36,6 +37,9 @@ type Ctx struct {
 	w                 http.ResponseWriter
 	r                 *http.Request
 	input             map[string]any
+	jsonInput         map[string]any
+	inputErr          error
+	jsonOnly          bool
 	parsed            bool
 	session           *Session
 	responded         bool
@@ -89,20 +93,26 @@ func (c *Ctx) Input() map[string]any {
 
 	contentType := c.r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
-		_ = c.r.ParseMultipartForm(64 << 20)
+		c.inputErr = c.r.ParseMultipartForm(64 << 20)
 		if c.r.MultipartForm != nil {
 			mergeValues(data, c.r.MultipartForm.Value)
 		}
 	} else if strings.Contains(contentType, "application/x-www-form-urlencoded") {
-		_ = c.r.ParseForm()
+		c.inputErr = c.r.ParseForm()
 		mergeValues(data, c.r.PostForm)
 	}
 
 	if strings.Contains(contentType, "application/json") {
 		defer c.r.Body.Close()
-		var jsonData map[string]any
-		if err := json.NewDecoder(c.r.Body).Decode(&jsonData); err == nil {
-			for k, v := range jsonData {
+		decoder := json.NewDecoder(c.r.Body)
+		decoder.UseNumber()
+		c.inputErr = decoder.Decode(&c.jsonInput)
+		if c.inputErr == nil {
+			var trailing json.RawMessage
+			if decoder.Decode(&trailing) != io.EOF {
+				c.inputErr = fmt.Errorf("invalid trailing JSON data")
+			}
+			for k, v := range c.jsonInput {
 				data[k] = v
 			}
 		}
@@ -202,7 +212,7 @@ func (c *Ctx) JSON(status int, data map[string]any) {
 		status = http.StatusInternalServerError
 		payload = []byte(`{"success":false,"message":"服务器内部错误"}`)
 	}
-	if callback != "" {
+	if callback != "" && !c.jsonOnly {
 		c.w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		c.w.WriteHeader(status)
 		_, _ = c.w.Write([]byte(callback + "(" + string(payload) + ");"))
@@ -277,16 +287,26 @@ func (c *Ctx) saveSession() error {
 	if c.session.ExpiresAt <= time.Now().Unix() {
 		c.session.ExpiresAt = time.Now().Unix() + c.app.config.SessionLifetimeSeconds
 	}
-	_, err := c.app.exec(`INSERT INTO csac_sessions (sid, uid, nickname, platform, sx, se, last_touch, expires_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := c.app.db.Exec(insertSessionSQL+`
 		ON DUPLICATE KEY UPDATE uid = VALUES(uid), nickname = VALUES(nickname), platform = VALUES(platform), sx = VALUES(sx), se = VALUES(se), last_touch = VALUES(last_touch), expires_at = VALUES(expires_at), updated_at = VALUES(updated_at)`,
-		c.session.SID, c.session.UID, c.session.Nickname, c.session.Platform, boolInt(c.session.SX), c.session.SE, c.session.LastTouch, c.session.ExpiresAt, time.Now().Unix())
+		c.session.storageArgs(time.Now().Unix())...)
 	if err != nil {
 		return err
 	}
-	http.SetCookie(c.w, &http.Cookie{Name: c.app.config.SessionCookieName, Value: c.session.SID, Path: "/", Expires: time.Unix(c.session.ExpiresAt, 0), MaxAge: int(c.app.config.SessionLifetimeSeconds), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsSecure(c.r)})
+	c.setSessionCookie()
 	c.session.dirty = false
 	return nil
+}
+
+const insertSessionSQL = `INSERT INTO csac_sessions (sid, uid, nickname, platform, sx, se, last_touch, expires_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+func (s *Session) storageArgs(now int64) []any {
+	return []any{s.SID, s.UID, s.Nickname, s.Platform, boolInt(s.SX), s.SE, s.LastTouch, s.ExpiresAt, now}
+}
+
+func (c *Ctx) setSessionCookie() {
+	http.SetCookie(c.w, &http.Cookie{Name: c.app.config.SessionCookieName, Value: c.session.SID, Path: "/", Expires: time.Unix(c.session.ExpiresAt, 0), MaxAge: int(c.app.config.SessionLifetimeSeconds), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: requestIsSecure(c.r)})
 }
 
 func (c *Ctx) destroySession() {

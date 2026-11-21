@@ -43,6 +43,7 @@ type Config struct {
 	DBName                               string
 	AdminUID                             int64
 	CacheSalt                            string
+	RegistrationCodeKey                  string
 	SessionLifetimeSeconds               int64
 	LongPollMaxSeconds                   int
 	LongPollSleepMillis                  int
@@ -72,13 +73,14 @@ type Config struct {
 type HandlerFunc func(*Ctx)
 
 type App struct {
-	db            *sql.DB
-	config        Config
-	routes        map[string]HandlerFunc
-	columnCache   map[string]map[string]bool
-	columnCacheMu chan struct{}
-	realtime      *realtimeService
-	wsMethods     map[string]wsMethod
+	db                *sql.DB
+	config            Config
+	routes            map[string]HandlerFunc
+	columnCache       map[string]map[string]bool
+	columnCacheMu     chan struct{}
+	realtime          *realtimeService
+	wsMethods         map[string]wsMethod
+	registrationCodes registrationCodeStore
 }
 
 func main() {
@@ -106,6 +108,11 @@ func NewApp(cfg Config) (*App, error) {
 	if cfg.WSMaxConnections < 1 {
 		cfg.WSMaxConnections = 256
 	}
+	registrationCipher, err := newRegistrationCodeCipher(cfg.RegistrationCodeKey)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RegistrationCodeKey = ""
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8mb4&parseTime=false&loc=UTC", cfg.DBUser, cfg.DBPass, cfg.DBHost, cfg.DBName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -115,19 +122,25 @@ func NewApp(cfg Config) (*App, error) {
 	db.SetMaxIdleConns(20)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, err
 	}
 
 	app := &App{
-		db:            db,
-		config:        cfg,
-		columnCache:   map[string]map[string]bool{},
-		columnCacheMu: make(chan struct{}, 1),
+		db:                db,
+		config:            cfg,
+		columnCache:       map[string]map[string]bool{},
+		columnCacheMu:     make(chan struct{}, 1),
+		registrationCodes: registrationCodeStore{db: db, cipher: registrationCipher},
 	}
 	app.columnCacheMu <- struct{}{}
 	app.routes = app.buildRoutes()
 	app.wsMethods = app.wsMethodCatalog()
 	app.ensureSchema()
+	if err := app.registrationCodes.prepare(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare registration storage: %w", err)
+	}
 	if err := passwords.EnsureSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("prepare password storage: %w", err)
@@ -223,6 +236,7 @@ func loadConfig() Config {
 		DBName:                               getenv("CSAC_DB_NAME", ""),
 		AdminUID:                             getenvInt64("CSAC_ADMIN_UID", defaultAdminUID),
 		CacheSalt:                            getenv("CSAC_CACHE_SALT", defaultCacheSalt),
+		RegistrationCodeKey:                  getenv("CSAC_REGISTRATION_CODE_KEY", ""),
 		SessionLifetimeSeconds:               getenvInt64("CSAC_SESSION_LIFETIME_SECONDS", defaultSessionLifetimeSeconds),
 		LongPollMaxSeconds:                   int(getenvInt64("CSAC_LONG_POLL_MAX_SECONDS", defaultLongPollMaxSeconds)),
 		LongPollSleepMillis:                  int(getenvInt64("CSAC_LONG_POLL_SLEEP_MILLIS", defaultLongPollSleepMillis)),
@@ -421,6 +435,10 @@ func (a *App) buildRoutes() map[string]HandlerFunc {
 		"admin/generate_token":            apiAdminGenerateToken,
 		"admin/admin_ban":                 apiAdminBan,
 		"admin/restore_account":           apiAdminRestoreAccount,
+		"admin/registration_codes/create": apiRegistrationCodeCreate,
+		"admin/registration_codes/list":   apiRegistrationCodeList,
+		"admin/registration_codes/detail": apiRegistrationCodeDetail,
+		"admin/registration_codes/revoke": apiRegistrationCodeRevoke,
 		"utils/upload_image":              apiUtilsUploadImage,
 		"utils/upload_voice":              apiUtilsUploadVoice,
 		"bug_report":                      apiBugReport,

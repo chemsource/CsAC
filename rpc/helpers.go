@@ -157,7 +157,7 @@ func requireLogin(c *Ctx) (int64, bool) {
 		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "账号已封禁", "ban_info": ban})
 		return 0, false
 	}
-	if c.app.config.RequireExistingUserEmailVerification && !userEmailVerified(c.app, uid) {
+	if c.app.userNeedsEmailVerification(uid) {
 		c.JSON(http.StatusForbidden, map[string]any{"success": false, "message": "请先完成邮箱验证", "needs_email_verification": true})
 		return 0, false
 	}
@@ -189,6 +189,19 @@ func requirePendingEmailUser(c *Ctx) (int64, bool) {
 func userEmailVerified(a *App, uid int64) bool {
 	row, err := a.fetchOne("SELECT email FROM chat_user WHERE id = ?", uid)
 	return err == nil && row != nil && strings.TrimSpace(str(row, "email")) != ""
+}
+
+// Registration-code access is an account entitlement, not proof of a mailbox.
+// In particular, binding a mailbox must still rely on userEmailVerified.
+func (a *App) userNeedsEmailVerification(uid int64) bool {
+	if !a.config.RequireExistingUserEmailVerification {
+		return false
+	}
+	var email sql.NullString
+	var redeemed bool
+	err := a.db.QueryRow(`SELECT u.email, EXISTS(SELECT 1 FROM csac_registration_code_redemptions r WHERE r.uid = u.id)
+		FROM chat_user u WHERE u.id = ?`, uid).Scan(&email, &redeemed)
+	return err != nil || (strings.TrimSpace(email.String) == "" && !redeemed)
 }
 
 func touchUser(c *Ctx, uid int64) {
@@ -509,12 +522,18 @@ func uploadFile(c *Ctx, field string, allowedMimes []string, maxBytes int64, abs
 	ext := uploadExt(mime, header.Filename, allowedMimes)
 	name := fmt.Sprintf("%s_%s_%d.%s", namePrefix, randomHex(6), time.Now().Unix(), ext)
 	dest := filepath.Join(absoluteDir, name)
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0664)
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0664)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "文件保存失败"})
 		return "", false
 	}
-	defer out.Close()
+	stored := false
+	defer func() {
+		_ = out.Close()
+		if !stored {
+			_ = os.Remove(dest)
+		}
+	}()
 	if len(first) > 0 {
 		if _, err := out.Write(first); err != nil {
 			c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "文件保存失败"})
@@ -525,6 +544,11 @@ func uploadFile(c *Ctx, field string, allowedMimes []string, maxBytes int64, abs
 		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "文件保存失败"})
 		return "", false
 	}
+	if err := out.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]any{"success": false, "message": "文件保存失败"})
+		return "", false
+	}
+	stored = true
 	return strings.TrimRight(publicPrefix, "/") + "/" + name, true
 }
 

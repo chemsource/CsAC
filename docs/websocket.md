@@ -10,6 +10,8 @@
 {"jsonrpc":"2.0","id":"login-1","method":"auth/login","params":{"username":"alice","pwd":"password","platform":"Android-native-app"}}
 ```
 
+也可用 `auth/register` 的 `params.registration_code` 走[注册码注册](registration-codes.md)，无需填写 `email` 或 `email_code`。成功后依然从 `result.session` 读取会话；失败的业务错误码位于 `error.data.body.code`。注册码管理方法不通过 WebSocket 暴露。
+
 `rpc.discover` 返回可用业务方法及 `public`、`read_only`、`idempotency_key` 元数据；`control_methods` 列出连接控制方法。用户侧 JSON API 使用既有 HTTP 路由名，如 `user/get_info`、`friend/send_request`、`group/create`、`message/send_group_msg`、`message/get_private_msg` 和 `space/get_list`。参数与原 HTTP API 对应，业务成功结果位于 `result.data`，原 HTTP 状态位于 `result.http_status`；业务失败返回 JSON-RPC `error`，原返回体在 `error.data.body`。
 
 ```json

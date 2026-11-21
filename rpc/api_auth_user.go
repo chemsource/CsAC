@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -15,6 +16,8 @@ import (
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -66,7 +69,7 @@ func apiAuthLogin(c *Ctx) {
 	if needGuide {
 		_, _ = c.app.updateRow("chat_user", map[string]any{"is_first_login": 0}, "id = ?", uid)
 	}
-	needsEmail := c.app.config.RequireExistingUserEmailVerification && strings.TrimSpace(str(user, "email")) == ""
+	needsEmail := c.app.userNeedsEmailVerification(uid)
 	c.JSON(http.StatusOK, map[string]any{
 		"success": true, "message": "登录成功", "need_guide": needGuide, "needs_email_verification": needsEmail, "platform": platform,
 		"user": map[string]any{"uid": uid, "nickname": str(user, "nickname"), "platform": platform},
@@ -201,14 +204,35 @@ func apiAuthRegister(c *Ctx) {
 	nickname := c.InputString("nickname")
 	pwd := c.InputString("pwd")
 	confirmPwd := c.InputString("confirm_pwd")
-	email := normalizeRegisterEmail(c.InputString("email"))
-	emailCode := c.InputString("email_code")
-	if username == "" || nickname == "" || pwd == "" || confirmPwd == "" || (c.app.config.RequireRegisterEmailVerification && (email == "" || emailCode == "")) {
-		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写完整表单"})
+	if c.r.URL.Query().Has("registration_code") {
+		c.jsonOnly = true
+		c.JSON(http.StatusBadRequest, map[string]any{"success": false, "message": "请在请求体中提交注册码"})
 		return
 	}
-	if c.app.config.RequireRegisterEmailVerification && email == "" {
-		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请输入有效的邮箱地址"})
+	if c.inputErr != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"success": false, "message": "无效的注册请求体"})
+		return
+	}
+	var registrationCode string
+	if raw := c.InputValue("registration_code", nil); raw != nil {
+		code, ok := raw.(string)
+		if !ok {
+			c.jsonOnly = true
+			writeRegistrationError(c, errInvalidRegistrationCode)
+			return
+		}
+		registrationCode = strings.TrimSpace(code)
+	}
+	viaCode := registrationCode != ""
+	c.jsonOnly = viaCode
+	verifyEmail := c.app.config.RequireRegisterEmailVerification && !viaCode
+	var email, emailCode string
+	if !viaCode {
+		email = normalizeRegisterEmail(c.InputString("email"))
+		emailCode = c.InputString("email_code")
+	}
+	if username == "" || nickname == "" || pwd == "" || confirmPwd == "" || (verifyEmail && (email == "" || emailCode == "")) {
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "请填写完整表单"})
 		return
 	}
 	if banNames[strings.ToLower(username)] || banNames[strings.ToLower(nickname)] {
@@ -235,22 +259,21 @@ func apiAuthRegister(c *Ctx) {
 		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "密码最多72字节，中文等字符可能占多个字节"})
 		return
 	}
-	row, _ := c.app.fetchOne("SELECT id FROM chat_user WHERE username = ?", username)
-	if row != nil {
-		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该登录账号已被注册"})
-		return
-	}
-	if c.app.config.RequireRegisterEmailVerification {
-		row, _ = c.app.fetchOne("SELECT id FROM chat_user WHERE email = ? LIMIT 1", email)
-		if row != nil {
-			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱已被注册"})
+	account := accountRegistration{username: username, nickname: nickname, email: email, avatar: c.app.config.DefaultAvatar}
+	if viaCode {
+		digest, ok := registrationCodeDigest(registrationCode)
+		if !ok {
+			writeRegistrationError(c, errInvalidRegistrationCode)
 			return
 		}
-	}
-	codeID := int64(0)
-	if c.app.config.RequireRegisterEmailVerification {
+		if _, err := lookupUsableRegistrationCode(c.r.Context(), c.app.db, digest, false); err != nil {
+			writeRegistrationError(c, err)
+			return
+		}
+		account.codeDigest = digest
+	} else if verifyEmail {
 		var ok bool
-		codeID, ok = verifiedRegisterEmailCodeID(c, email, emailCode)
+		account.emailCodeID, ok = verifiedRegisterEmailCodeID(c, email, emailCode)
 		if !ok {
 			return
 		}
@@ -259,40 +282,53 @@ func apiAuthRegister(c *Ctx) {
 	if err != nil {
 		panic(err)
 	}
-	tx, err := c.app.db.Begin()
-	if err != nil {
-		panic(err)
-	}
-	defer tx.Rollback()
-	if codeID > 0 {
-		used := txExec(tx, "UPDATE register_email_codes SET used_at = ? WHERE id = ? AND used_at = 0", time.Now().Unix(), codeID)
-		if used != 1 {
-			c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码已失效，请重新获取"})
-			return
-		}
-	}
-	newUID, err := c.app.insertRowTx(tx, "chat_user", map[string]any{"username": username, "nickname": nickname, "email": nullableString(email), "pwd": passwordHash, "add_time": time.Now().Unix(), "avatar": c.app.config.DefaultAvatar, "hide_conv": "", "is_first_login": 1, "last_active": time.Now().Unix()})
-	if err != nil {
-		panic(err)
-	}
-	if hasMultipartFile(c, "avatar") {
-		if err := tx.Commit(); err != nil {
-			panic(err)
-		}
-		avatar, ok := uploadFile(c, "avatar", imageMimes, c.app.config.MaxImageBytes, c.app.config.UploadDir, "upload", fmt.Sprintf("avatar_%d", newUID))
+	account.password = passwordHash
+
+	committed := false
+	hasAvatar := c.r.MultipartForm != nil && len(c.r.MultipartForm.File["avatar"]) > 0
+	if hasAvatar {
+		var ok bool
+		account.avatar, ok = uploadFile(c, "avatar", imageMimes, c.app.config.MaxImageBytes, c.app.config.UploadDir, "upload", "avatar_registration")
 		if !ok {
 			return
 		}
-		_, _ = c.app.updateRow("chat_user", map[string]any{"avatar": avatar}, "id = ?", newUID)
-	} else {
-		regDate := localDateTime(time.Now().Unix())
-		_, _ = c.app.insertRowTx(tx, "chat_user_notice", map[string]any{"uid": newUID, "title": "欢迎使用 CsAC 在线聊天", "content": fmt.Sprintf("亲爱的%s：\n您好！\n感谢您使用Chemsource AtsukaCIT Chatting。\n\n使用指南：\n1. 登录后可创建群组，或通过群组编号、邀请码加入聊天室；\n2. 支持文字、图片、语音、好友和群组管理；\n3. 请文明交流，遇到问题可联系网站管理员。\n\nCsAC在线聊天网站管理员 %s\n%s", nickname, c.app.config.AdminName, regDate), "is_read": 0, "add_time": localDateTime(time.Now().Unix())})
-		if err := tx.Commit(); err != nil {
-			panic(err)
-		}
+		defer func() {
+			if !committed {
+				_ = os.Remove(filepath.Join(c.app.config.UploadDir, filepath.Base(account.avatar)))
+			}
+		}()
 	}
-	c.session = &Session{SID: randomSessionID(), UID: newUID, Nickname: nickname, ExpiresAt: time.Now().Unix() + c.app.config.SessionLifetimeSeconds, dirty: true}
-	c.JSON(http.StatusOK, map[string]any{"success": true, "message": "注册成功", "need_guide": true, "user": map[string]any{"uid": newUID, "nickname": nickname}})
+	session, err := c.app.registerAccount(c.r.Context(), account)
+	if err != nil {
+		writeRegistrationError(c, err)
+		return
+	}
+	committed = true
+	c.session = session
+	c.setSessionCookie()
+	if !hasAvatar {
+		notice(c.app, session.UID, "欢迎使用 CsAC 在线聊天", fmt.Sprintf("亲爱的%s：\n您好！\n感谢您使用Chemsource AtsukaCIT Chatting。\n\n使用指南：\n1. 登录后可创建群组，或通过群组编号、邀请码加入聊天室；\n2. 支持文字、图片、语音、好友和群组管理；\n3. 请文明交流，遇到问题可联系网站管理员。\n\nCsAC在线聊天网站管理员 %s\n%s", nickname, c.app.config.AdminName, localDateTime(session.LastTouch)))
+	}
+	result := map[string]any{"success": true, "message": "注册成功", "need_guide": true, "user": map[string]any{"uid": session.UID, "nickname": nickname}}
+	if viaCode {
+		result["needs_email_verification"] = false
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func writeRegistrationError(c *Ctx, err error) {
+	switch {
+	case errors.Is(err, errInvalidRegistrationCode):
+		c.JSON(http.StatusOK, map[string]any{"success": false, "code": "invalid_registration_code", "message": "注册码无效、已过期、已用完或已作废"})
+	case errors.Is(err, errRegistrationUsernameTaken):
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该登录账号已被注册"})
+	case errors.Is(err, errRegistrationEmailTaken):
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "该邮箱已被注册"})
+	case errors.Is(err, errRegistrationEmailCodeUsed):
+		c.JSON(http.StatusOK, map[string]any{"success": false, "message": "验证码已失效，请重新获取"})
+	default:
+		panic(err)
+	}
 }
 
 func normalizeRegisterEmail(email string) string {

@@ -86,6 +86,14 @@ systemctl daemon-reload
 
 `unour-certificate.service` 使用同一脚本同步 `uno.csac.chat`，其共享目录变量为 `UNOUR_SITE_DIR`。证书续期由现有 Certbot 定时任务负责，1Panel 显示证书为本地导入。
 
+## 注册码注册
+
+邮箱验证码策略不需要改变。生成并查看注册码需在私密 `.env` 中配置独立的 `CSAC_REGISTRATION_CODE_KEY`。首次启用时用 `openssl rand -base64 32` 生成一次，录入该文件，并纳入私密备份。所有 RPC 实例使用同一份密钥；重建容器、更新镜像或恢复数据库时沿用它。不要把密钥写入命令参数、代码仓库、日志或公开的数据库备份。
+
+在既有环境中启用时，确认服务器实际使用的 `/opt/csac/compose.yaml` 将该变量传给 `rpc`。自动部署只更新镜像，不同步服务器上的 Compose 文件；只改 `.env` 但没有变量映射不会启用生成。更新 Compose 和私密配置后重建 `rpc` 容器。RPC 启动时会创建新表，不需要重新导入数据库。启用前先备份，并确认 `CSAC_ADMIN_UID` 对应预先建立的有效管理员账号、账号及会话表使用 InnoDB。
+
+如果密钥未配置，管理员仍可列出和作废已有注册码，已发放的有效码仍可注册，但无法生成或查看原码。若误换密钥，旧码不能解密；恢复原密钥即可。当前版本不支持原地轮换加密密钥。API 参数及响应见[注册码接入](../docs/registration-codes.md)。
+
 ## 备份与维护
 
 ```sh
